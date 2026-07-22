@@ -372,6 +372,10 @@ server-log hits for `ClaudeBot`, `Claude-User`, `Claude-SearchBot`, `OAI-SearchB
       and server-log studies show ~97% of `llms.txt` files receive zero AI requests. Cheap
       agent-readiness hygiene, **not** a rankings or citation lever on any platform.
 
+## Related
+
+- [midnight-seo-skills](https://github.com/abouchard11/midnight-seo-skills) — the Claude Code skill suite I run my SEO portfolio with; this research is its GEO companion piece.
+
 ---
 
 *Researched, verified, and maintained by Alex Bouchard ([MidnightDev](https://midnightdev.dev)).
