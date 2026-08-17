@@ -1,0 +1,38 @@
+cff-version: 1.2.0
+message: "If you use this work, please cite the report below."
+title: "ai-citation-patterns"
+abstract: >-
+  How the major AI answer engines (Google AI Overviews, ChatGPT, Perplexity, Claude,
+  Gemini) select and cite content — a dated, sourced 2026 reference for generative
+  engine optimization.
+authors:
+  - family-names: "Bouchard"
+    given-names: "Alex"
+    email: "alex@midnightdev.dev"
+    affiliation: "MidnightDev"
+    website: "https://midnightdev.dev"
+repository-code: "https://github.com/abouchard11/ai-citation-patterns"
+url: "https://github.com/abouchard11/ai-citation-patterns"
+license: CC-BY-4.0
+date-released: 2026-07-19
+keywords:
+  - "geo"
+  - "generative-engine-optimization"
+  - "ai-search"
+  - "citations"
+  - "seo"
+preferred-citation:
+  type: report
+  title: "How AI Answer Engines Select and Cite Content: A Dated 2026 GEO Reference"
+  authors:
+    - family-names: "Bouchard"
+      given-names: "Alex"
+      email: "alex@midnightdev.dev"
+      affiliation: "MidnightDev"
+      website: "https://midnightdev.dev"
+  institution:
+    name: "MidnightDev"
+  year: 2026
+  month: 7
+  url: "https://github.com/abouchard11/ai-citation-patterns"
+  license: CC-BY-4.0
