@@ -379,5 +379,8 @@ server-log hits for `ClaudeBot`, `Claude-User`, `Claude-SearchBot`, `OAI-SearchB
 ---
 
 *Researched, verified, and maintained by Alex Bouchard ([MidnightDev](https://midnightdev.dev)).
-Contributions and corrections welcome — open an issue with a primary source. Licensed
-[CC BY 4.0](LICENSE).*
+Corrections may be reported by issue with a primary source. External code or content submissions require separate written terms.
+
+## Rights
+
+**Proprietary — all rights reserved. No license is granted.** See [LICENSE](LICENSE).
