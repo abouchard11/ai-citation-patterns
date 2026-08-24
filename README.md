@@ -3,9 +3,10 @@
 *How the major AI answer engines actually select and cite content — dated, sourced, and honestly
 caveated. Researched and maintained by [Alex Bouchard](https://github.com/abouchard11) (MidnightDev).*
 
-> **Freshness note (verification pass 2026-07-16):** platform-behavior sections were last fully
-> verified Mar–Apr 2026; Google's 2026-05-27 AI Overviews/AI Mode update is captured in the dated
-> addendum below. Content-structure and query-type sections age slowly and remain current.
+> **Freshness note (verification pass 2026-07-16; widget addendum 2026-08-24):** platform-behavior
+> sections were last fully verified Mar–Apr 2026; Google's 2026-05-27 AI Overviews/AI Mode update
+> and the 2026-08-20 Preferred Sources JavaScript widget are captured in dated addenda below.
+> Content-structure and query-type sections age slowly and remain current.
 >
 > **Verification discipline:** AI citation behavior drifts in *months*, not years — model
 > transitions, crawler changes, and feature launches happen quarterly. Before relying on anything
@@ -28,6 +29,19 @@ caveated. Researched and maintained by [Alex Bouchard](https://github.com/abouch
 >    primary assets (calculators, data studies).
 > 4. **In-text citation links** now sit next to the specific claims they support — rewards
 >    claim-level citability; the statistic-block and definition-block structures align directly.
+
+> **UPDATE 2026-08-20 (verified 2026-08-24; sources: developers.google.com/search/docs/appearance/preferred-sources
+> last-updated 2026-08-20; Search Engine Roundtable Aug 21 2026):**
+> The May 27 change is where the **badge** shows. This is how you **collect** the opt-in without
+> dumping the reader on Google.
+> - **Standard JavaScript (recommended):** `publisher.js` + `<div google-add-preferred-source-btn>`.
+>   Popup, then back to the article. Do not ship the old deeplink as the primary CTA.
+> - **Eligibility is the host**, not a folder. `example.com` and `shop.example.com` yes;
+>   `example.com/blog` no.
+> - Still a frequency/badge signal for people who opted in — not a relevance override, not a
+>   substitute for Map Pack on local-service sites.
+> - Execution: [`/preferred-source` in midnight-seo-skills](https://github.com/abouchard11/midnight-seo-skills) —
+>   SHIP / MAYBE / SKIP first. Skip games, dashboards, calculator-as-app.
 
 **Note (2026):** AI Mode launched broadly at Google I/O May 2025; 180+ countries by end-2025. In
 Jan 2026 Gemini 3 became default for both AI Overviews and AI Mode, and citation-vs-top-10 overlap
@@ -367,6 +381,9 @@ server-log hits for `ClaudeBot`, `Claude-User`, `Claude-SearchBot`, `OAI-SearchB
 - [ ] Static HTML (avoid JS-only rendering — Perplexity parses 94% vs 23%)
 - [ ] `robots.txt` permits the AI crawlers you want citing you (`ClaudeBot`, `Claude-User`,
       `Claude-SearchBot`, `GPTBot`, `OAI-SearchBot`, `PerplexityBot`, `Google-Extended`)
+- [ ] If the host publishes (articles on the root domain), ship Google's Preferred Sources
+      **JavaScript popup** (not the deeplink). Skip tools, games, `/blog` paths. See
+      midnight-seo-skills `/preferred-source`.
 - [ ] Optional: `llms.txt` at the domain root — but note: Google states its systems **ignore** it
       (developer guidance Jun 16/29 2026), there is no confirmed third-party consumption by Claude,
       and server-log studies show ~97% of `llms.txt` files receive zero AI requests. Cheap
@@ -374,7 +391,7 @@ server-log hits for `ClaudeBot`, `Claude-User`, `Claude-SearchBot`, `OAI-SearchB
 
 ## Related
 
-- [midnight-seo-skills](https://github.com/abouchard11/midnight-seo-skills) — the Claude Code skill suite I run my SEO portfolio with; this research is its GEO companion piece.
+- [midnight-seo-skills](https://github.com/abouchard11/midnight-seo-skills) — the Claude Code skill suite I run my SEO portfolio with; this research is its GEO companion piece. `/preferred-source` is the execution path for the Aug 2026 JS widget.
 
 ---
 
