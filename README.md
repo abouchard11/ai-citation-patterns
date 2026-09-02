@@ -3,9 +3,10 @@
 *How the major AI answer engines actually select and cite content — dated, sourced, and honestly
 caveated. Researched and maintained by [Alex Bouchard](https://github.com/abouchard11) (MidnightDev).*
 
-> **Freshness note (verification pass 2026-07-16; widget addendum 2026-08-24):** platform-behavior
-> sections were last fully verified Mar–Apr 2026; Google's 2026-05-27 AI Overviews/AI Mode update
-> and the 2026-08-20 Preferred Sources JavaScript widget are captured in dated addenda below.
+> **Freshness note (verification pass 2026-07-16; addenda through 2026-09-02):** platform-behavior
+> sections were last fully verified Mar–Apr 2026; Google's 2026-05-27 AI Overviews/AI Mode update,
+> the 2026-08-20 Preferred Sources widget, Search Console's worldwide generative-AI reporting
+> rollout, and Cloudflare's Bot Preference Sync are captured in dated addenda below.
 > Content-structure and query-type sections age slowly and remain current.
 >
 > **Verification discipline:** AI citation behavior drifts in *months*, not years — model
@@ -42,6 +43,26 @@ caveated. Researched and maintained by [Alex Bouchard](https://github.com/abouch
 >   substitute for Map Pack on local-service sites.
 > - Execution: [`/preferred-source` in midnight-seo-skills](https://github.com/abouchard11/midnight-seo-skills) —
 >   SHIP / MAYBE / SKIP first. Skip games, dashboards, calculator-as-app.
+
+> **UPDATE 2026-09-02 (official sources only):**
+> - Search Console's dedicated **Generative AI performance reports** for Search and Discover became
+>   available to all websites worldwide on 2026-08-31. They report impressions, surfaced pages,
+>   countries, devices for Search, and hourly/daily/weekly/monthly trends.
+> - The separate **Search generative AI control** is an inclusion/exclusion policy, not a ranking
+>   lever for other Search surfaces and not a training control. Google-Extended remains the training
+>   control. Do not change this consequential setting during a read-only audit.
+> - **Automation boundary:** the Search Analytics API currently documents only `discover`,
+>   `googleNews`, `news`, `image`, `video`, and `web` report types. It exposes no dedicated
+>   generative-AI type or dimension as of 2026-09-02; use the Search Console UI or an
+>   operator-approved export until Google documents API support.
+> - Cloudflare's **Bot Preference Sync** can derive `robots.txt` directives from zone-level Search,
+>   Agent, and Training preferences. Audit policy alignment, but never enable or change it without
+>   operator approval.
+>
+> Sources: [Google rollout](https://developers.google.com/search/blog/2026/06/gen-ai-performance-reports),
+> [Search Analytics API](https://developers.google.com/webmaster-tools/v1/searchanalytics/query),
+> [Search generative AI control](https://support.google.com/webmasters/answer/16908024), and
+> [Cloudflare Bot Preference Sync](https://blog.cloudflare.com/bot-preference-sync/).
 
 **Note (2026):** AI Mode launched broadly at Google I/O May 2025; 180+ countries by end-2025. In
 Jan 2026 Gemini 3 became default for both AI Overviews and AI Mode, and citation-vs-top-10 overlap
@@ -353,15 +374,24 @@ attribute immediately, then interpret.
 
 ## Tracking AI citations
 
-**Manual monitoring** — check whether your content appears in Google AI Overviews for target
-keywords, ChatGPT responses (search your domain), Perplexity results, and Claude responses (test
-specific queries with web search enabled). Test with exact-match FAQ questions, definitions of terms
-you've defined, statistics you've cited with attribution, and processes you've documented.
+Keep four evidence planes separate; none is a substitute for another.
 
-**Indicators of AI visibility** — increased direct traffic (AI users clicking sources, though AIO CTR
-is ~1%), traffic spikes from unusual referrers, low bounce / high time-on-page, return visitors, and
-server-log hits for `ClaudeBot`, `Claude-User`, `Claude-SearchBot`, `OAI-SearchBot`, `GPTBot`,
-`PerplexityBot`, `Google-Extended`.
+| Question | Canonical evidence |
+| --- | --- |
+| Can the host be fetched and read? | Technical probe plus rendered inspection |
+| Did a verified crawler reach origin? | Origin/CDN logs or verified ReadableByAI events |
+| Did Google surface a page in generative AI? | Search Console Generative AI report |
+| Is the brand cited by an answer engine? | Repeated, fixed prompt matrix recording the cited URL |
+| Did a human click and convert? | GA4 referral/channel reporting plus first-party conversion events |
+
+GA4 automatically excludes known bots, so silence there is not crawler evidence. Direct traffic is not
+a defensible proxy for “dark AI,” and a crawler fetch is not proof of a citation. External visibility
+vendors and rank trackers are observational enrichment; record provider, method, coverage, cost,
+observation date, and missing-result rate.
+
+The dependency-free [portfolio audit runbook](AUDIT_RUNBOOK.md) checks public technical surfaces and
+high-risk claim-review flags. It does not claim indexation, ranking, factual truth, citation share, or
+conversion performance.
 
 ---
 
@@ -379,8 +409,10 @@ server-log hits for `ClaudeBot`, `Claude-User`, `Claude-SearchBot`, `OAI-SearchB
 - [ ] Optimal passage length 134–167 words (Google AIO)
 - [ ] Schema.org JSON-LD (FAQ, HowTo, Article, Product)
 - [ ] Static HTML (avoid JS-only rendering — Perplexity parses 94% vs 23%)
-- [ ] `robots.txt` permits the AI crawlers you want citing you (`ClaudeBot`, `Claude-User`,
-      `Claude-SearchBot`, `GPTBot`, `OAI-SearchBot`, `PerplexityBot`, `Google-Extended`)
+- [ ] `robots.txt` and edge policy permit the search/retrieval agents you want
+      (`Googlebot`, `Claude-SearchBot`, `Claude-User`, `OAI-SearchBot`, `ChatGPT-User`,
+      `PerplexityBot`, `Perplexity-User`). Treat training controls such as `ClaudeBot`,
+      `GPTBot`, and `Google-Extended` as a separate policy decision.
 - [ ] If the host publishes (articles on the root domain), ship Google's Preferred Sources
       **JavaScript popup** (not the deeplink). Skip tools, games, `/blog` paths. See
       midnight-seo-skills `/preferred-source`.
@@ -392,6 +424,7 @@ server-log hits for `ClaudeBot`, `Claude-User`, `Claude-SearchBot`, `OAI-SearchB
 ## Related
 
 - [midnight-seo-skills](https://github.com/abouchard11/midnight-seo-skills) — the Claude Code skill suite I run my SEO portfolio with; this research is its GEO companion piece. `/preferred-source` is the execution path for the Aug 2026 JS widget.
+- [GEO/AEO audit runbook](AUDIT_RUNBOOK.md) — repeatable public-surface checks, evidence boundaries, and the monthly read-only workflow.
 
 ---
 

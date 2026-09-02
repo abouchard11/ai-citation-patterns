@@ -1,0 +1,50 @@
+name: GEO/AEO portfolio audit
+
+on:
+  workflow_dispatch:
+  schedule:
+    # GitHub cron is UTC. Trigger both offsets, then keep only 08:00 America/Chicago.
+    - cron: "0 13,14 1-7 * 1"
+  pull_request:
+    paths:
+      - "portfolio.json"
+      - "scripts/geo_aeo_audit.py"
+      - "tests/**"
+      - ".github/workflows/geo-aeo-audit.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select the monthly Central-time run
+        id: schedule_gate
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" != "schedule" || "$(TZ=America/Chicago date +%H)" == "08" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-python@v5
+        if: steps.schedule_gate.outputs.run == 'true'
+        with:
+          python-version: "3.12"
+      - name: Run unit tests
+        if: steps.schedule_gate.outputs.run == 'true'
+        run: python -m unittest discover -s tests -v
+      - name: Audit live portfolio
+        if: steps.schedule_gate.outputs.run == 'true'
+        continue-on-error: true
+        run: python scripts/geo_aeo_audit.py --config portfolio.json --output audit/latest.json --markdown audit/latest.md
+      - name: Upload audit evidence
+        if: steps.schedule_gate.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: geo-aeo-audit
+          path: audit/
+          if-no-files-found: error
