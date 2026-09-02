@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "_comment": "Example configuration. The live portfolio config is held privately and passed via --config. Copy this file, fill in your own sites, and keep it out of version control.",
+  "sites": [
+    {
+      "name": "Example Docs Site",
+      "url": "https://example.com/",
+      "minimum_words": 500,
+      "preferred_source_candidate": true
+    },
+    {
+      "name": "Example Product Page",
+      "url": "https://example.org/",
+      "minimum_words": 250,
+      "preferred_source_candidate": false,
+      "claim_patterns": ["award[- ]winning", "\\d+% faster"]
+    }
+  ]
+}

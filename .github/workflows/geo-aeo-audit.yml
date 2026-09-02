@@ -1,50 +1,43 @@
-name: GEO/AEO portfolio audit
+name: Audit runner CI
+
+# This repository holds the runner and the research, not the findings.
+# The live portfolio config is private; the scheduled audit runs in the
+# private companion repo, which checks this repo out for the script.
 
 on:
   workflow_dispatch:
-  schedule:
-    # GitHub cron is UTC. Trigger both offsets, then keep only 08:00 America/Chicago.
-    - cron: "0 13,14 1-7 * 1"
   pull_request:
     paths:
-      - "portfolio.json"
+      - "portfolio.example.json"
       - "scripts/geo_aeo_audit.py"
       - "tests/**"
       - ".github/workflows/geo-aeo-audit.yml"
+  push:
+    branches: [main]
+    paths:
+      - "scripts/**"
+      - "tests/**"
 
 permissions:
   contents: read
 
 jobs:
-  audit:
+  test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Select the monthly Central-time run
-        id: schedule_gate
-        shell: bash
-        run: |
-          if [[ "${{ github.event_name }}" != "schedule" || "$(TZ=America/Chicago date +%H)" == "08" ]]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          fi
       - uses: actions/setup-python@v5
-        if: steps.schedule_gate.outputs.run == 'true'
         with:
           python-version: "3.12"
       - name: Run unit tests
-        if: steps.schedule_gate.outputs.run == 'true'
         run: python -m unittest discover -s tests -v
-      - name: Audit live portfolio
-        if: steps.schedule_gate.outputs.run == 'true'
-        continue-on-error: true
-        run: python scripts/geo_aeo_audit.py --config portfolio.json --output audit/latest.json --markdown audit/latest.md
-      - name: Upload audit evidence
-        if: steps.schedule_gate.outputs.run == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: geo-aeo-audit
-          path: audit/
-          if-no-files-found: error
+      - name: Smoke-run the auditor against the example config
+        run: |
+          python scripts/geo_aeo_audit.py \
+            --config portfolio.example.json \
+            --output /tmp/smoke.json \
+            --markdown /tmp/smoke.md \
+            --timeout 10 || true
+          test -s /tmp/smoke.json || { echo "auditor produced no output"; exit 1; }
+          echo "auditor executed and produced output"

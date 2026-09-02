@@ -1,2 +1,7 @@
 .DS_Store
 *.log
+
+# Live portfolio configuration and audit findings are private.
+# They name real properties and real advertising claims — never commit them here.
+portfolio.json
+audit/
