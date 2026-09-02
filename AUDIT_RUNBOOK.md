@@ -1,5 +1,13 @@
 # GEO/AEO portfolio audit runbook
 
+> **Configuration is private.** `portfolio.json` names live properties and the
+> advertising claims watched on them, and is held in a private companion repo
+> along with the dated findings — it is never committed here. Copy
+> `portfolio.example.json` to build your own, and keep it untracked.
+> The scheduled live audit runs from that private repo, which checks this
+> repo out for the runner.
+
+
 This repository includes a dependency-free technical audit runner. It checks observable crawl and answer-surface facts; it does not pretend to measure rankings, citation share, factual truth, or conversion performance.
 
 ## Run it
