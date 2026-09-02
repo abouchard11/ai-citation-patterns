@@ -5,3 +5,10 @@
 # They name real properties and real advertising claims — never commit them here.
 portfolio.json
 audit/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Local scratch
+TODO.md
