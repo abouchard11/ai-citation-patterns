@@ -67,6 +67,12 @@ SYSTEM_PROMPT = (
 )
 
 RETRYABLE_STATUS = {408, 409, 429, 500, 502, 503, 504, 529}
+FATAL_STATUS = {401, 402, 403}
+MARKDOWN_LINK = re.compile(r"\]\((https?://[^)\s]+)\)")
+
+
+class FatalProbeError(RuntimeError):
+    """The whole run must stop: bad key, no credit, or account refusal."""
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +164,11 @@ def extract_signals(response: dict[str, Any]) -> dict[str, Any]:
                         "cited_text": (citation.get("cited_text") or "")[:150],
                     })
 
+    for url in MARKDOWN_LINK.findall("".join(answer_parts)):
+        if url not in seen_cited:
+            seen_cited.add(url)
+            cited.append({"url": url, "title": "", "cited_text": "", "via": "markdown_link"})
+
     usage = response.get("usage") or {}
     return {
         "queries_issued": queries,
@@ -166,6 +177,7 @@ def extract_signals(response: dict[str, Any]) -> dict[str, Any]:
         "search_errors": errors,
         "stop_reason": response.get("stop_reason"),
         "answer_chars": sum(len(p) for p in answer_parts),
+        "cost_usd": None,
         "web_search_requests": (usage.get("server_tool_use") or {}).get("web_search_requests", 0),
         "input_tokens": usage.get("input_tokens", 0),
         "output_tokens": usage.get("output_tokens", 0),
@@ -248,15 +260,22 @@ def extract_openrouter_signals(response: dict[str, Any]) -> dict[str, Any]:
                 "title": loc.get("title") or "",
                 "cited_text": (loc.get("content") or "")[:150],
             })
+    content = message.get("content") if isinstance(message.get("content"), str) else ""
+    for url in MARKDOWN_LINK.findall(content):
+        if url not in seen:
+            seen.add(url)
+            cited.append({"url": url, "title": "", "cited_text": "", "via": "markdown_link"})
     usage = response.get("usage") or {}
     finish = choices[0].get("finish_reason")
+    cost = usage.get("cost")
     return {
         "queries_issued": [],
         "retrieved": list(cited),
         "cited": cited,
         "search_errors": [],
         "stop_reason": "refusal" if finish == "content_filter" else finish,
-        "answer_chars": len(message.get("content") or ""),
+        "answer_chars": len(content),
+        "cost_usd": float(cost) if isinstance(cost, (int, float)) else None,
         "web_search_requests": (usage.get("server_tool_use") or {}).get("web_search_requests", 0),
         "input_tokens": usage.get("prompt_tokens", usage.get("input_tokens", 0)),
         "output_tokens": usage.get("completion_tokens", usage.get("output_tokens", 0)),
@@ -295,6 +314,8 @@ def call_api(body: dict[str, Any], api_key: str, timeout: float, attempts: int =
                 return json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", "replace")[:300]
+            if exc.code in FATAL_STATUS:
+                raise FatalProbeError(f"HTTP {exc.code}: {detail}") from exc
             if exc.code not in RETRYABLE_STATUS or attempt == attempts:
                 raise RuntimeError(f"HTTP {exc.code}: {detail}") from exc
             last_error = exc
@@ -373,6 +394,8 @@ def run_probe(
                 run["error"] = "model declined the request (stop_reason=refusal)"
             # Keep the snapshot small: drop the per-result dicts, keep URL lists.
             del run["retrieved"], run["cited"]
+        except FatalProbeError:
+            raise
         except RuntimeError as exc:
             run["error"] = str(exc)
             run["site_retrieved"] = None
@@ -471,6 +494,12 @@ def markdown_report(payload: dict[str, Any]) -> str:
         f"Generated: {payload['generated_at']}",
         "",
         engine_line,
+    ]
+    if payload.get("spend_usd") is not None:
+        lines.append(f"Reported spend: ${payload['spend_usd']:.4f}.")
+    if payload.get("stopped_early"):
+        lines.append(f"**Run stopped early: {payload['stopped_early']}. Coverage is partial; do not read absences as losses.**")
+    lines += [
         "",
         "> One engine, official API, no site named in any prompt. Retrieval is non-deterministic, "
         "so read rates across repeats, not single runs. CITED = at least one answer cited the site. "
@@ -549,6 +578,11 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=90.0)
     parser.add_argument("--fixtures", default=None, help="Directory of saved responses; no API calls are made.")
     parser.add_argument("--max-probes", type=int, default=None, help="Stop after N questions in total (budget guard).")
+    parser.add_argument("--max-spend", type=float, default=5.0,
+                        help="Stop once reported spend (USD) exceeds this. OpenRouter reports cost per response; "
+                             "the Anthropic engine does not, so use --max-searches there. Default 5.")
+    parser.add_argument("--max-searches", type=int, default=None,
+                        help="Stop once this many web searches have been billed (both engines report the count).")
     args = parser.parse_args()
 
     config = load_config(Path(args.config))
@@ -579,16 +613,39 @@ def main() -> int:
 
     sites_out: list[dict[str, Any]] = []
     probes_run = 0
+    spent = 0.0
+    searches = 0
+    stopped: str | None = None
     for site in config["probes"]:
         settings = dict(settings_base)
         settings["user_location"] = site.get("user_location") or defaults.get("user_location")
         probes: list[dict[str, Any]] = []
         for question in site["questions"]:
-            if args.max_probes is not None and probes_run >= args.max_probes:
+            if stopped is not None:
                 break
-            probes.append(run_probe(site, question, settings, api_key, fixtures_dir, args.timeout))
+            if args.max_probes is not None and probes_run >= args.max_probes:
+                stopped = f"--max-probes {args.max_probes} reached"
+                break
+            if spent > args.max_spend:
+                stopped = f"spend guard: ${spent:.4f} reported, limit ${args.max_spend:.2f}"
+                break
+            if args.max_searches is not None and searches >= args.max_searches:
+                stopped = f"--max-searches {args.max_searches} reached"
+                break
+            try:
+                probe = run_probe(site, question, settings, api_key, fixtures_dir, args.timeout)
+            except FatalProbeError as exc:
+                stopped = f"fatal: {exc} (bad key, no credit, or account refusal)"
+                print(stopped, file=sys.stderr)
+                break
+            probes.append(probe)
             probes_run += 1
+            for run in probe["runs"]:
+                spent += run.get("cost_usd") or 0.0
+                searches += run.get("web_search_requests") or 0
         sites_out.append(summarise_site(site, probes))
+    if stopped:
+        print(f"Run stopped early: {stopped}. Coverage is partial.", file=sys.stderr)
 
     total_searches = sum(
         r.get("web_search_requests", 0) for s in sites_out for p in s["probes"] for r in p["runs"]
@@ -605,6 +662,8 @@ def main() -> int:
         "repeats": settings_base["repeats"],
         "source": "fixtures" if fixtures_dir else "live",
         "total_searches": total_searches,
+        "spend_usd": round(spent, 4) if engine == "openrouter" else None,
+        "stopped_early": stopped,
         "sites": sites_out,
     }
 
@@ -617,7 +676,7 @@ def main() -> int:
     print(markdown_report(payload))
 
     any_error = any(r.get("error") for s in sites_out for p in s["probes"] for r in p["runs"])
-    return 2 if any_error else 0
+    return 2 if (any_error or stopped) else 0
 
 
 if __name__ == "__main__":

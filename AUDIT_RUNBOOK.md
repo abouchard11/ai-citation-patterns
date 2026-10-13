@@ -95,6 +95,14 @@ with `engine: native`, which for Claude models forwards Anthropic's own search
 OpenRouter returns citations only, so on that engine RETRIEVED is reported
 equal to CITED and the report says so.
 
+Budget guards: `--max-spend` (default $5) stops the run once OpenRouter's
+per-response `usage.cost` adds up past the limit; `--max-searches` caps billed
+searches on either engine. A 401, 402, or 403 stops the whole run at once
+instead of failing every probe in turn. A stopped run is marked partial in the
+JSON (`stopped_early`) and the report, and exits 2; do not read its absences
+as losses. Markdown links in the answer text count as citations too, since
+native search prompts the model to cite that way.
+
 Cost is dominated by web search at $10 per 1,000 searches, capped per question
 by `max_uses`. Nine sites, three questions, two repeats, three searches max is
 under $2 of search per run plus token costs.

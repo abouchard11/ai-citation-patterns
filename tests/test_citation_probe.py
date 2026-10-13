@@ -273,5 +273,59 @@ class OpenRouterTests(unittest.TestCase):
             self.assertIn("OPENROUTER_API_KEY", proc.stderr)
 
 
+class GuardTests(unittest.TestCase):
+    def test_markdown_links_in_the_answer_count_as_citations(self):
+        resp = openrouter_response([])
+        resp["choices"][0]["message"]["content"] = "See [example.com](https://example.com/page) and [a](https://a.com/)."
+        signals = PROBE.extract_openrouter_signals(resp)
+        self.assertEqual([c["url"] for c in signals["cited"]], ["https://example.com/page", "https://a.com/"])
+        self.assertEqual(signals["cited"][0]["via"], "markdown_link")
+        direct = direct_response([], [])
+        direct["content"][-1]["text"] = "Answer [src](https://b.com/x)."
+        self.assertEqual([c["url"] for c in PROBE.extract_signals(direct)["cited"]], ["https://b.com/x"])
+
+    def test_openrouter_cost_is_read_from_usage(self):
+        resp = openrouter_response(["https://a.com/"]); resp["usage"]["cost"] = 0.0123
+        self.assertEqual(PROBE.extract_openrouter_signals(resp)["cost_usd"], 0.0123)
+        self.assertIsNone(PROBE.extract_openrouter_signals(openrouter_response([]))["cost_usd"])
+
+    def test_auth_and_credit_errors_are_fatal_and_not_retried(self):
+        import io, urllib.error
+        calls = []
+        def fake_urlopen(request, timeout=0):
+            calls.append(1)
+            raise urllib.error.HTTPError(request.full_url, 402, "Payment Required", {}, io.BytesIO(b'{"error":"no credit"}'))
+        original = PROBE.urllib.request.urlopen
+        PROBE.urllib.request.urlopen = fake_urlopen
+        try:
+            with self.assertRaises(PROBE.FatalProbeError):
+                PROBE.call_api({"x": 1}, "key", 5, engine="openrouter")
+        finally:
+            PROBE.urllib.request.urlopen = original
+        self.assertEqual(len(calls), 1)
+
+    def test_cli_spend_guard_stops_the_run_and_marks_it_partial(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fx = pathlib.Path(tmp) / "fx"; fx.mkdir()
+            cfg = {"defaults": {"engine": "openrouter", "repeats": 1},
+                   "probes": [{"name": "Example Co", "domain": "example.com", "questions": ["q1", "q2", "q3"]}]}
+            (pathlib.Path(tmp) / "probes.json").write_text(json.dumps(cfg))
+            for q in cfg["probes"][0]["questions"]:
+                resp = openrouter_response(["https://example.com/"]); resp["usage"]["cost"] = 0.6
+                (fx / PROBE.fixture_key("Example Co", q, 0)).write_text(json.dumps(resp))
+            out = pathlib.Path(tmp) / "o.json"
+            proc = subprocess.run(
+                [sys.executable, str(MODULE_PATH), "--config", f"{tmp}/probes.json", "--fixtures", str(fx),
+                 "--max-spend", "1.0", "--output", str(out), "--markdown", f"{tmp}/o.md"],
+                capture_output=True, text=True, timeout=60,
+            )
+            self.assertEqual(proc.returncode, 2, proc.stderr)
+            payload = json.loads(out.read_text())
+            self.assertIn("spend guard", payload["stopped_early"])
+            self.assertEqual(len(payload["sites"][0]["probes"]), 2)
+            self.assertAlmostEqual(payload["spend_usd"], 1.2)
+            self.assertIn("stopped early", (pathlib.Path(tmp) / "o.md").read_text())
+
+
 if __name__ == "__main__":
     unittest.main()
