@@ -17,6 +17,11 @@ class CitationCueCatalogTests(unittest.TestCase):
             for field in FIELDS:
                 self.assertTrue(cue.get(field), f"{code} is missing {field}")
 
+    def test_the_index_cause_names_a_step_for_each_index_it_checks(self):
+        steps = self.doc["cues"]["D2"]["stepsByIndex"]
+        self.assertEqual(sorted(steps), ["bing", "brave", "google"])
+        self.assertTrue(all(steps.values()))
+
     def test_work_order_covers_the_same_codes(self):
         self.assertEqual(sorted(self.doc["work_order"]), self.doc["order"])
 

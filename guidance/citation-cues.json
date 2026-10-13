@@ -55,7 +55,15 @@
         "submission steps"
       ],
       "source": "https://github.com/abouchard11/ai-citation-patterns",
-      "verified": "2026-10-13"
+      "verified": "2026-10-13",
+      "stepsByIndex": {
+        "bing": "Verify your site in Bing Webmaster Tools, submit the sitemap, and send changed URLs through IndexNow.",
+        "google": "Inspect the URL in Search Console and request indexing for the pages that answer your questions.",
+        "brave": "Brave takes no submissions. Get your site linked from pages Brave already holds, and check again in a few weeks."
+      },
+      "effortByIndex": {
+        "brave": "weeks of waiting; there is nothing to submit"
+      }
     },
     "D3": {
       "cause": "Indexed, but no page answers the question",
