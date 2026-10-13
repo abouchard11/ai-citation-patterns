@@ -398,6 +398,23 @@ buyer-intent questions through the official web search tool and records which do
 and which were cited, per run, with repeats. Same repo split: the question set and the dated results
 live in the private companion. See the runbook's "LLM citation scoreboard" section.
 
+### When you are not cited: six causes
+
+A miss on the prompt matrix is one of six different problems, and they have to be fixed in order.
+[`guidance/citation-cues.json`](guidance/citation-cues.json) is the canonical text for each: the
+cause, how it is detected, what to do, what it costs, and where it gets hard.
+
+| Code | Cause | Cue |
+| --- | --- | --- |
+| D1 | Not fetchable | Unblock the bot |
+| D2 | Not in that engine's index | Get indexed |
+| D3 | Indexed, but no page answers the question | Write the passage |
+| D4 | Answering page exists, competitor chosen | Rewrite the answer |
+| D5 | Question mismatch | Change the question |
+| D6 | Authority gap | Earn mentions |
+
+A check that could not run is reported as unknown. It is never read as a pass or as a failure.
+
 ---
 
 ## Optimization checklist
