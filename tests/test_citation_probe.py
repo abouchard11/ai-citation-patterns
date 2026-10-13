@@ -154,6 +154,8 @@ class AggregationTests(unittest.TestCase):
         self.assertEqual(probe["cited_runs"], 1)
         self.assertEqual(probe["retrieved_runs"], 2)
         self.assertEqual(probe["runs"][1]["site_best_rank"], 2)
+        self.assertEqual(probe["runs"][0]["citations"], [{"url": "https://example.com/", "cited_text": "snippet", "via": "annotation"}])
+        self.assertNotIn("cited", probe["runs"][0])
         summary = PROBE.summarise_site(self.site(), [probe])
         self.assertEqual(summary["status"], "CITED")
         self.assertEqual(summary["cited_rate"], 0.5)

@@ -395,7 +395,12 @@ def run_probe(
             run["retrieved_domains"] = sorted({host_of(u) for u in run["retrieved_urls"] if host_of(u)})
             if signals["stop_reason"] == "refusal":
                 run["error"] = "model declined the request (stop_reason=refusal)"
-            # Keep the snapshot small: drop the per-result dicts, keep URL lists.
+            # The quoted passage is the learning signal: it says WHAT the model
+            # chose to cite. Keep it (<=150 chars each) and drop the bulkier lists.
+            run["citations"] = [
+                {"url": c["url"], "cited_text": c.get("cited_text", ""), "via": c.get("via", "annotation")}
+                for c in signals["cited"]
+            ][:25]
             del run["retrieved"], run["cited"]
         except FatalProbeError:
             raise
