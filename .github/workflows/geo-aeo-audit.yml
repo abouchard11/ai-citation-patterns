@@ -9,7 +9,8 @@ on:
   pull_request:
     paths:
       - "portfolio.example.json"
-      - "scripts/geo_aeo_audit.py"
+      - "probes.example.json"
+      - "scripts/**"
       - "tests/**"
       - ".github/workflows/geo-aeo-audit.yml"
   push:
@@ -41,3 +42,12 @@ jobs:
             --timeout 10 || true
           test -s /tmp/smoke.json || { echo "auditor produced no output"; exit 1; }
           echo "auditor executed and produced output"
+      - name: Smoke-run the citation probe offline against saved fixtures
+        run: |
+          python scripts/llm_citation_probe.py \
+            --config probes.example.json \
+            --fixtures tests/fixtures/citation_probe \
+            --output /tmp/citations.json \
+            --markdown /tmp/citations.md
+          test -s /tmp/citations.json || { echo "citation probe produced no output"; exit 1; }
+          echo "citation probe executed offline and produced output"
