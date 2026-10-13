@@ -69,6 +69,11 @@ SYSTEM_PROMPT = (
 RETRYABLE_STATUS = {408, 409, 429, 500, 502, 503, 504, 529}
 FATAL_STATUS = {401, 402, 403}
 MARKDOWN_LINK = re.compile(r"\]\((https?://[^)\s]+)\)")
+# Longest cited passage kept per citation. The learn stage mines these for the
+# structure of what each engine chose to quote; a full answer passage runs to
+# about 170 words, so 1,000 characters keeps whole passages and bounds the snapshot.
+CITED_TEXT_MAX = 1000
+
 
 
 class FatalProbeError(RuntimeError):
@@ -161,7 +166,7 @@ def extract_signals(response: dict[str, Any]) -> dict[str, Any]:
                     cited.append({
                         "url": url,
                         "title": citation.get("title") or "",
-                        "cited_text": (citation.get("cited_text") or "")[:150],
+                        "cited_text": (citation.get("cited_text") or "")[:CITED_TEXT_MAX],
                     })
 
     for url in MARKDOWN_LINK.findall("".join(answer_parts)):
@@ -258,7 +263,7 @@ def extract_openrouter_signals(response: dict[str, Any]) -> dict[str, Any]:
             cited.append({
                 "url": url,
                 "title": loc.get("title") or "",
-                "cited_text": (loc.get("content") or "")[:150],
+                "cited_text": (loc.get("content") or "")[:CITED_TEXT_MAX],
             })
     content = message.get("content") if isinstance(message.get("content"), str) else ""
     for url in MARKDOWN_LINK.findall(content):
@@ -396,7 +401,7 @@ def run_probe(
             if signals["stop_reason"] == "refusal":
                 run["error"] = "model declined the request (stop_reason=refusal)"
             # The quoted passage is the learning signal: it says WHAT the model
-            # chose to cite. Keep it (<=150 chars each) and drop the bulkier lists.
+            # chose to cite. Keep it (<=CITED_TEXT_MAX chars each) and drop the bulkier lists.
             run["citations"] = [
                 {"url": c["url"], "cited_text": c.get("cited_text", ""), "via": c.get("via", "annotation")}
                 for c in signals["cited"]
