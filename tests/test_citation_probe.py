@@ -52,6 +52,27 @@ def filtered_response(retrieved, cited):
     return resp
 
 
+def openrouter_response(cited, finish="stop", error=None):
+    """An OpenRouter chat completion with url_citation annotations."""
+    if error is not None:
+        return {"error": error}
+    return {
+        "id": "gen-1",
+        "choices": [{
+            "finish_reason": finish,
+            "message": {
+                "role": "assistant",
+                "content": "Answer with [a.com](https://a.com/).",
+                "annotations": [
+                    {"type": "url_citation", "url_citation": {"url": u, "title": "t", "content": "snippet", "start_index": 0, "end_index": 5}}
+                    for u in cited
+                ],
+            },
+        }],
+        "usage": {"prompt_tokens": 80, "completion_tokens": 40, "server_tool_use": {"web_search_requests": 2}},
+    }
+
+
 class DomainTests(unittest.TestCase):
     def test_host_strips_www_and_lowercases(self):
         self.assertEqual(PROBE.host_of("https://WWW.Example.com/path"), "example.com")
@@ -181,7 +202,8 @@ class CliTests(unittest.TestCase):
             self.assertEqual(payload["sites"][0]["status"], "CITED")
             report = md.read_text(encoding="utf-8")
             self.assertIn("# LLM citation scoreboard", report)
-            self.assertIn("| Example Co | CITED |", report)
+            self.assertIn("| Example Co | `claude-sonnet-5-5` | CITED |", report)
+            self.assertEqual(payload["sites"][0]["models"][0]["model"], "claude-sonnet-5-5")
 
     def test_cli_refuses_to_run_live_without_a_key(self):
         root = pathlib.Path(__file__).parents[1]
@@ -193,6 +215,173 @@ class CliTests(unittest.TestCase):
             )
             self.assertEqual(proc.returncode, 2)
             self.assertIn("ANTHROPIC_API_KEY", proc.stderr)
+
+
+class OpenRouterTests(unittest.TestCase):
+    def settings(self, **extra):
+        base = {"engine": "openrouter", "model": "anthropic/claude-sonnet-5.5", "search_tool": "ignored",
+                "repeats": 1, "max_uses": 3, "max_tokens": 512, "user_location": None, "blocked_domains": []}
+        base.update(extra)
+        return base
+
+    def test_request_uses_native_server_tool_and_forwards_location(self):
+        body = PROBE.build_openrouter_request("q?", self.settings(user_location={"city": "Houston", "country": "US"}))
+        self.assertEqual(body["model"], "anthropic/claude-sonnet-5.5")
+        tool = body["tools"][0]
+        self.assertEqual(tool["type"], "openrouter:web_search")
+        self.assertEqual(tool["parameters"]["engine"], "native")
+        self.assertEqual(tool["parameters"]["max_uses"], 3)
+        self.assertEqual(tool["parameters"]["user_location"]["type"], "approximate")
+        self.assertNotIn("excluded_domains", tool["parameters"])
+        self.assertEqual(body["messages"][0]["role"], "system")
+        self.assertEqual(body["messages"][1]["content"], "q?")
+
+    def test_annotations_become_citations_and_retrieved_mirrors_cited(self):
+        signals = PROBE.extract_openrouter_signals(openrouter_response(["https://a.com/", "https://example.com/p", "https://a.com/"]))
+        self.assertEqual([c["url"] for c in signals["cited"]], ["https://a.com/", "https://example.com/p"])
+        self.assertEqual([r["url"] for r in signals["retrieved"]], ["https://a.com/", "https://example.com/p"])
+        self.assertEqual(signals["web_search_requests"], 2)
+        self.assertEqual(signals["input_tokens"], 80)
+        self.assertEqual(signals["usage_raw"], {"prompt_tokens": 80, "completion_tokens": 40})
+
+    def test_error_object_raises_runtime_error(self):
+        with self.assertRaises(RuntimeError):
+            PROBE.extract_openrouter_signals(openrouter_response([], error={"code": 402, "message": "insufficient credits"}))
+        with self.assertRaises(RuntimeError):
+            PROBE.extract_openrouter_signals({"choices": []})
+
+    def test_content_filter_is_reported_as_refusal(self):
+        signals = PROBE.extract_openrouter_signals(openrouter_response([], finish="content_filter"))
+        self.assertEqual(signals["stop_reason"], "refusal")
+
+    def test_fixture_run_end_to_end(self):
+        site = {"name": "Example Co", "domain": "example.com", "questions": ["q"], "_domains": ["example.com"]}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / PROBE.fixture_key("Example Co", "q", 0)
+            path.write_text(json.dumps(openrouter_response(["https://www.example.com/"])), encoding="utf-8")
+            probe = PROBE.run_probe(site, "q", self.settings(), None, pathlib.Path(tmp), 10)
+        self.assertEqual(probe["outcome"], "CITED")
+        self.assertEqual(probe["runs"][0]["site_best_rank"], 1)
+
+    def test_cli_names_the_openrouter_key_when_missing(self):
+        root = pathlib.Path(__file__).parents[1]
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = subprocess.run(
+                [sys.executable, str(MODULE_PATH), "--config", str(root / "probes.example.json"), "--engine", "openrouter",
+                 "--output", f"{tmp}/o.json", "--markdown", f"{tmp}/o.md"],
+                capture_output=True, text=True, timeout=60, env={"PATH": "/usr/bin:/bin"},
+            )
+            self.assertEqual(proc.returncode, 2)
+            self.assertIn("OPENROUTER_API_KEY", proc.stderr)
+
+
+class GuardTests(unittest.TestCase):
+    def test_markdown_links_in_the_answer_count_as_citations(self):
+        resp = openrouter_response([])
+        resp["choices"][0]["message"]["content"] = "See [example.com](https://example.com/page) and [a](https://a.com/)."
+        signals = PROBE.extract_openrouter_signals(resp)
+        self.assertEqual([c["url"] for c in signals["cited"]], ["https://example.com/page", "https://a.com/"])
+        self.assertEqual(signals["cited"][0]["via"], "markdown_link")
+        direct = direct_response([], [])
+        direct["content"][-1]["text"] = "Answer [src](https://b.com/x)."
+        self.assertEqual([c["url"] for c in PROBE.extract_signals(direct)["cited"]], ["https://b.com/x"])
+
+    def test_openrouter_cost_is_read_from_usage(self):
+        resp = openrouter_response(["https://a.com/"]); resp["usage"]["cost"] = 0.0123
+        self.assertEqual(PROBE.extract_openrouter_signals(resp)["cost_usd"], 0.0123)
+        self.assertIsNone(PROBE.extract_openrouter_signals(openrouter_response([]))["cost_usd"])
+
+    def test_auth_and_credit_errors_are_fatal_and_not_retried(self):
+        import io, urllib.error
+        calls = []
+        def fake_urlopen(request, timeout=0):
+            calls.append(1)
+            raise urllib.error.HTTPError(request.full_url, 402, "Payment Required", {}, io.BytesIO(b'{"error":"no credit"}'))
+        original = PROBE.urllib.request.urlopen
+        PROBE.urllib.request.urlopen = fake_urlopen
+        try:
+            with self.assertRaises(PROBE.FatalProbeError):
+                PROBE.call_api({"x": 1}, "key", 5, engine="openrouter")
+        finally:
+            PROBE.urllib.request.urlopen = original
+        self.assertEqual(len(calls), 1)
+
+    def test_cli_spend_guard_stops_the_run_and_marks_it_partial(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fx = pathlib.Path(tmp) / "fx"; fx.mkdir()
+            cfg = {"defaults": {"engine": "openrouter", "repeats": 1},
+                   "probes": [{"name": "Example Co", "domain": "example.com", "questions": ["q1", "q2", "q3"]}]}
+            (pathlib.Path(tmp) / "probes.json").write_text(json.dumps(cfg))
+            for q in cfg["probes"][0]["questions"]:
+                resp = openrouter_response(["https://example.com/"]); resp["usage"]["cost"] = 0.6
+                (fx / PROBE.fixture_key("Example Co", q, 0)).write_text(json.dumps(resp))
+            out = pathlib.Path(tmp) / "o.json"
+            proc = subprocess.run(
+                [sys.executable, str(MODULE_PATH), "--config", f"{tmp}/probes.json", "--fixtures", str(fx),
+                 "--max-spend", "1.0", "--output", str(out), "--markdown", f"{tmp}/o.md"],
+                capture_output=True, text=True, timeout=60,
+            )
+            self.assertEqual(proc.returncode, 2, proc.stderr)
+            payload = json.loads(out.read_text())
+            self.assertIn("spend guard", payload["stopped_early"])
+            self.assertEqual(len(payload["sites"][0]["models"][0]["probes"]), 2)
+            self.assertAlmostEqual(payload["spend_usd"], 1.2)
+            self.assertIn("stopped early", (pathlib.Path(tmp) / "o.md").read_text())
+
+
+class MultiModelTests(unittest.TestCase):
+    def test_openrouter_runs_every_model_and_rolls_up_the_site(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fx = pathlib.Path(tmp) / "fx"; fx.mkdir()
+            cfg = {"defaults": {"engine": "openrouter", "repeats": 1,
+                                "openrouter_models": ["openai/gpt-5.5", "perplexity/sonar"]},
+                   "probes": [{"name": "Example Co", "domain": "example.com", "questions": ["q1"]}]}
+            (pathlib.Path(tmp) / "probes.json").write_text(json.dumps(cfg))
+            # Fixtures are keyed by site+question+run, so both models read the same file.
+            (fx / PROBE.fixture_key("Example Co", "q1", 0)).write_text(json.dumps(openrouter_response(["https://example.com/"])))
+            out = pathlib.Path(tmp) / "o.json"; md = pathlib.Path(tmp) / "o.md"
+            proc = subprocess.run(
+                [sys.executable, str(MODULE_PATH), "--config", f"{tmp}/probes.json", "--fixtures", str(fx),
+                 "--output", str(out), "--markdown", str(md)],
+                capture_output=True, text=True, timeout=60,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            payload = json.loads(out.read_text())
+            self.assertEqual(payload["models"], ["openai/gpt-5.5", "perplexity/sonar"])
+            site = payload["sites"][0]
+            self.assertEqual([m["model"] for m in site["models"]], ["openai/gpt-5.5", "perplexity/sonar"])
+            self.assertEqual(site["status"], "CITED")
+            self.assertEqual(site["completed_runs"], 2)
+            report = md.read_text()
+            self.assertIn("| Example Co | `openai/gpt-5.5` | CITED |", report)
+            self.assertIn("| Example Co | `perplexity/sonar` | CITED |", report)
+
+    def test_cli_model_flag_is_repeatable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fx = pathlib.Path(tmp) / "fx"; fx.mkdir()
+            cfg = {"defaults": {"engine": "openrouter", "repeats": 1},
+                   "probes": [{"name": "Example Co", "domain": "example.com", "questions": ["q1"]}]}
+            (pathlib.Path(tmp) / "probes.json").write_text(json.dumps(cfg))
+            (fx / PROBE.fixture_key("Example Co", "q1", 0)).write_text(json.dumps(openrouter_response([])))
+            out = pathlib.Path(tmp) / "o.json"
+            proc = subprocess.run(
+                [sys.executable, str(MODULE_PATH), "--config", f"{tmp}/probes.json", "--fixtures", str(fx),
+                 "--model", "a/one", "--model", "b/two", "--output", str(out), "--markdown", f"{tmp}/o.md"],
+                capture_output=True, text=True, timeout=60,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            payload = json.loads(out.read_text())
+            self.assertEqual(payload["models"], ["a/one", "b/two"])
+            self.assertEqual(payload["sites"][0]["status"], "ABSENT")
+
+    def test_rollup_prefers_the_best_status_and_pools_runs(self):
+        site = {"name": "S", "_domains": ["s.com"]}
+        a = {"status": "ABSENT", "completed_runs": 2, "cited_runs": 0, "retrieved_runs": 0}
+        b = {"status": "RETRIEVED", "completed_runs": 2, "cited_runs": 0, "retrieved_runs": 1}
+        roll = PROBE.rollup_site(site, [a, b])
+        self.assertEqual(roll["status"], "RETRIEVED")
+        self.assertEqual(roll["retrieved_rate"], 0.25)
+        self.assertEqual(PROBE.rollup_site(site, [{"status": "ERROR", "completed_runs": 0, "cited_runs": 0, "retrieved_runs": 0}])["status"], "ERROR")
 
 
 if __name__ == "__main__":
