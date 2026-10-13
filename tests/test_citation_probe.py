@@ -242,6 +242,7 @@ class OpenRouterTests(unittest.TestCase):
         self.assertEqual([r["url"] for r in signals["retrieved"]], ["https://a.com/", "https://example.com/p"])
         self.assertEqual(signals["web_search_requests"], 2)
         self.assertEqual(signals["input_tokens"], 80)
+        self.assertEqual(signals["usage_raw"], {"prompt_tokens": 80, "completion_tokens": 40})
 
     def test_error_object_raises_runtime_error(self):
         with self.assertRaises(RuntimeError):

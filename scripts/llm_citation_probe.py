@@ -276,6 +276,9 @@ def extract_openrouter_signals(response: dict[str, Any]) -> dict[str, Any]:
         "stop_reason": "refusal" if finish == "content_filter" else finish,
         "answer_chars": len(content),
         "cost_usd": float(cost) if isinstance(cost, (int, float)) else None,
+        # Kept verbatim so the snapshot shows what this engine actually reports
+        # (the first live run showed 0 web_search_requests; the field may differ).
+        "usage_raw": {k: v for k, v in usage.items() if not isinstance(v, (dict, list))},
         "web_search_requests": (usage.get("server_tool_use") or {}).get("web_search_requests", 0),
         "input_tokens": usage.get("prompt_tokens", usage.get("input_tokens", 0)),
         "output_tokens": usage.get("completion_tokens", usage.get("output_tokens", 0)),
