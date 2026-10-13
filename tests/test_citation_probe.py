@@ -202,7 +202,8 @@ class CliTests(unittest.TestCase):
             self.assertEqual(payload["sites"][0]["status"], "CITED")
             report = md.read_text(encoding="utf-8")
             self.assertIn("# LLM citation scoreboard", report)
-            self.assertIn("| Example Co | CITED |", report)
+            self.assertIn("| Example Co | `claude-sonnet-5-5` | CITED |", report)
+            self.assertEqual(payload["sites"][0]["models"][0]["model"], "claude-sonnet-5-5")
 
     def test_cli_refuses_to_run_live_without_a_key(self):
         root = pathlib.Path(__file__).parents[1]
@@ -322,9 +323,64 @@ class GuardTests(unittest.TestCase):
             self.assertEqual(proc.returncode, 2, proc.stderr)
             payload = json.loads(out.read_text())
             self.assertIn("spend guard", payload["stopped_early"])
-            self.assertEqual(len(payload["sites"][0]["probes"]), 2)
+            self.assertEqual(len(payload["sites"][0]["models"][0]["probes"]), 2)
             self.assertAlmostEqual(payload["spend_usd"], 1.2)
             self.assertIn("stopped early", (pathlib.Path(tmp) / "o.md").read_text())
+
+
+class MultiModelTests(unittest.TestCase):
+    def test_openrouter_runs_every_model_and_rolls_up_the_site(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fx = pathlib.Path(tmp) / "fx"; fx.mkdir()
+            cfg = {"defaults": {"engine": "openrouter", "repeats": 1,
+                                "openrouter_models": ["openai/gpt-5.5", "perplexity/sonar"]},
+                   "probes": [{"name": "Example Co", "domain": "example.com", "questions": ["q1"]}]}
+            (pathlib.Path(tmp) / "probes.json").write_text(json.dumps(cfg))
+            # Fixtures are keyed by site+question+run, so both models read the same file.
+            (fx / PROBE.fixture_key("Example Co", "q1", 0)).write_text(json.dumps(openrouter_response(["https://example.com/"])))
+            out = pathlib.Path(tmp) / "o.json"; md = pathlib.Path(tmp) / "o.md"
+            proc = subprocess.run(
+                [sys.executable, str(MODULE_PATH), "--config", f"{tmp}/probes.json", "--fixtures", str(fx),
+                 "--output", str(out), "--markdown", str(md)],
+                capture_output=True, text=True, timeout=60,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            payload = json.loads(out.read_text())
+            self.assertEqual(payload["models"], ["openai/gpt-5.5", "perplexity/sonar"])
+            site = payload["sites"][0]
+            self.assertEqual([m["model"] for m in site["models"]], ["openai/gpt-5.5", "perplexity/sonar"])
+            self.assertEqual(site["status"], "CITED")
+            self.assertEqual(site["completed_runs"], 2)
+            report = md.read_text()
+            self.assertIn("| Example Co | `openai/gpt-5.5` | CITED |", report)
+            self.assertIn("| Example Co | `perplexity/sonar` | CITED |", report)
+
+    def test_cli_model_flag_is_repeatable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fx = pathlib.Path(tmp) / "fx"; fx.mkdir()
+            cfg = {"defaults": {"engine": "openrouter", "repeats": 1},
+                   "probes": [{"name": "Example Co", "domain": "example.com", "questions": ["q1"]}]}
+            (pathlib.Path(tmp) / "probes.json").write_text(json.dumps(cfg))
+            (fx / PROBE.fixture_key("Example Co", "q1", 0)).write_text(json.dumps(openrouter_response([])))
+            out = pathlib.Path(tmp) / "o.json"
+            proc = subprocess.run(
+                [sys.executable, str(MODULE_PATH), "--config", f"{tmp}/probes.json", "--fixtures", str(fx),
+                 "--model", "a/one", "--model", "b/two", "--output", str(out), "--markdown", f"{tmp}/o.md"],
+                capture_output=True, text=True, timeout=60,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            payload = json.loads(out.read_text())
+            self.assertEqual(payload["models"], ["a/one", "b/two"])
+            self.assertEqual(payload["sites"][0]["status"], "ABSENT")
+
+    def test_rollup_prefers_the_best_status_and_pools_runs(self):
+        site = {"name": "S", "_domains": ["s.com"]}
+        a = {"status": "ABSENT", "completed_runs": 2, "cited_runs": 0, "retrieved_runs": 0}
+        b = {"status": "RETRIEVED", "completed_runs": 2, "cited_runs": 0, "retrieved_runs": 1}
+        roll = PROBE.rollup_site(site, [a, b])
+        self.assertEqual(roll["status"], "RETRIEVED")
+        self.assertEqual(roll["retrieved_rate"], 0.25)
+        self.assertEqual(PROBE.rollup_site(site, [{"status": "ERROR", "completed_runs": 0, "cited_runs": 0, "retrieved_runs": 0}])["status"], "ERROR")
 
 
 if __name__ == "__main__":

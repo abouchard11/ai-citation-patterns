@@ -51,7 +51,7 @@ API_VERSION = "2023-06-01"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_ENGINE = "anthropic"
 DEFAULT_MODEL = "claude-sonnet-5-5"
-DEFAULT_OPENROUTER_MODEL = "anthropic/claude-sonnet-5.5"
+DEFAULT_OPENROUTER_MODELS = ["openai/gpt-5.5", "perplexity/sonar", "google/gemini-3.5-flash"]
 DEFAULT_SEARCH_TOOL = "web_search_20250305"
 ENGINES = ("anthropic", "openrouter")
 DEFAULT_REPEATS = 2
@@ -425,6 +425,33 @@ def classify(completed: int, cited: int, retrieved: int) -> str:
     return "ABSENT"
 
 
+def summarise_model(site: dict[str, Any], model: str, probes: list[dict[str, Any]], skipped: str | None = None) -> dict[str, Any]:
+    summary = summarise_site(site, probes)
+    summary["model"] = model
+    summary["skipped"] = skipped
+    return summary
+
+
+def rollup_site(site: dict[str, Any], per_model: list[dict[str, Any]]) -> dict[str, Any]:
+    """Site row across models: best status wins, rates pooled over all runs."""
+    completed = sum(m["completed_runs"] for m in per_model)
+    cited = sum(m["cited_runs"] for m in per_model)
+    retrieved = sum(m["retrieved_runs"] for m in per_model)
+    statuses = [m["status"] for m in per_model]
+    status = next((st for st in ("CITED", "RETRIEVED", "ABSENT") if st in statuses), "ERROR")
+    return {
+        "name": site["name"],
+        "domains": site["_domains"],
+        "status": status,
+        "completed_runs": completed,
+        "cited_runs": cited,
+        "retrieved_runs": retrieved,
+        "cited_rate": round(cited / completed, 3) if completed else None,
+        "retrieved_rate": round(retrieved / completed, 3) if completed else None,
+        "models": per_model,
+    }
+
+
 def summarise_site(site: dict[str, Any], probes: list[dict[str, Any]]) -> dict[str, Any]:
     completed = sum(p["completed_runs"] for p in probes)
     cited = sum(p["cited_runs"] for p in probes)
@@ -472,8 +499,9 @@ def pct(value: float | None) -> str:
 def markdown_report(payload: dict[str, Any]) -> str:
     if payload.get("engine") == "openrouter":
         engine_line = (
-            f"Engine: `{payload['model']}` via OpenRouter, native provider search, "
-            f"{payload['repeats']} run(s) per question, {payload['total_searches']} web searches billed."
+            "Engine: " + ", ".join(f"`{m}`" for m in payload["models"]) + " via OpenRouter, each with its "
+            f"provider's native search, {payload['repeats']} run(s) per question, "
+            f"{payload['total_searches']} web searches billed."
         )
         retrieved_note = (
             "RETRIEVED is not observable on this engine (OpenRouter returns citations, not the raw "
@@ -505,33 +533,38 @@ def markdown_report(payload: dict[str, Any]) -> str:
         "so read rates across repeats, not single runs. CITED = at least one answer cited the site. "
         + retrieved_note,
         "",
-        "| Site | Status | Cited | Retrieved | Questions | Top competing cited domains |",
-        "| --- | --- | ---: | ---: | ---: | --- |",
+        "| Site | Model | Status | Cited | Retrieved | Questions | Top competing cited domains |",
+        "| --- | --- | --- | ---: | ---: | ---: | --- |",
     ]
     for site in payload["sites"]:
-        competitors = ", ".join(c["domain"] for c in site["competing_cited_domains"][:4]) or "—"
-        lines.append(
-            f"| {site['name']} | {site['status']} | {pct(site['cited_rate'])} | "
-            f"{pct(site['retrieved_rate'])} | {len(site['probes'])} | {competitors} |"
-        )
+        for m in site["models"]:
+            competitors = ", ".join(c["domain"] for c in m["competing_cited_domains"][:4]) or "—"
+            lines.append(
+                f"| {site['name']} | `{m['model']}` | {m['status']} | {pct(m['cited_rate'])} | "
+                f"{pct(m['retrieved_rate'])} | {len(m['probes'])} | {competitors} |"
+            )
 
     for site in payload["sites"]:
-        lines.extend(["", f"## {site['name']}", ""])
-        for probe in site["probes"]:
-            n = probe["completed_runs"]
-            lines.append(
-                f"- {probe['outcome']}: \"{probe['question']}\" — cited {probe['cited_runs']}/{n}, "
-                f"retrieved {probe['retrieved_runs']}/{n}"
-            )
-            errors = sorted({r["error"] for r in probe["runs"] if r.get("error")})
-            for error in errors:
-                lines.append(f"  - ERROR: {error}")
-        if site["competing_cited_domains"]:
-            lines.append("")
-            lines.append(
-                "  Competing cited domains: "
-                + ", ".join(f"{c['domain']} ({c['runs']})" for c in site["competing_cited_domains"])
-            )
+        lines.extend(["", f"## {site['name']}"])
+        for m in site["models"]:
+            lines.extend(["", f"### `{m['model']}`: {m['status']}", ""])
+            if m.get("skipped"):
+                lines.append(f"- SKIPPED: {m['skipped']}")
+            for probe in m["probes"]:
+                n = probe["completed_runs"]
+                lines.append(
+                    f"- {probe['outcome']}: \"{probe['question']}\" — cited {probe['cited_runs']}/{n}, "
+                    f"retrieved {probe['retrieved_runs']}/{n}"
+                )
+                errors = sorted({r["error"] for r in probe["runs"] if r.get("error")})
+                for error in errors:
+                    lines.append(f"  - ERROR: {error}")
+            if m["competing_cited_domains"]:
+                lines.append("")
+                lines.append(
+                    "  Competing cited domains: "
+                    + ", ".join(f"{c['domain']} ({c['runs']})" for c in m["competing_cited_domains"])
+                )
 
     lines.extend([
         "",
@@ -571,8 +604,9 @@ def main() -> int:
     parser.add_argument("--markdown", default="citations/latest.md")
     parser.add_argument("--engine", choices=ENGINES, default=None,
                         help="anthropic (ANTHROPIC_API_KEY) or openrouter (OPENROUTER_API_KEY). Overrides config.")
-    parser.add_argument("--model", default=None,
-                        help=f"Overrides config. Default {DEFAULT_MODEL} (anthropic) / {DEFAULT_OPENROUTER_MODEL} (openrouter).")
+    parser.add_argument("--model", action="append", default=None,
+                        help="Overrides config; repeatable on the openrouter engine. "
+                             f"Default {DEFAULT_MODEL} (anthropic) / {', '.join(DEFAULT_OPENROUTER_MODELS)} (openrouter).")
     parser.add_argument("--search-tool", default=None, help=f"Anthropic engine only. Default {DEFAULT_SEARCH_TOOL}.")
     parser.add_argument("--repeats", type=int, default=None, help=f"Runs per question. Default {DEFAULT_REPEATS}.")
     parser.add_argument("--timeout", type=float, default=90.0)
@@ -590,11 +624,16 @@ def main() -> int:
     engine = args.engine or defaults.get("engine", DEFAULT_ENGINE)
     if engine not in ENGINES:
         raise SystemExit(f"engine must be one of {ENGINES}, got {engine!r}")
-    default_model = DEFAULT_OPENROUTER_MODEL if engine == "openrouter" else DEFAULT_MODEL
-    configured_model = defaults.get("openrouter_model") if engine == "openrouter" else defaults.get("model")
+    if engine == "openrouter":
+        configured = defaults.get("openrouter_models") or (
+            [defaults["openrouter_model"]] if defaults.get("openrouter_model") else None
+        )
+        models = args.model or configured or list(DEFAULT_OPENROUTER_MODELS)
+    else:
+        models = (args.model or [defaults.get("model") or DEFAULT_MODEL])[:1]
     settings_base = {
         "engine": engine,
-        "model": args.model or configured_model or default_model,
+        "model": models[0],
         "search_tool": args.search_tool or defaults.get("search_tool", DEFAULT_SEARCH_TOOL),
         "repeats": args.repeats or int(defaults.get("repeats", DEFAULT_REPEATS)),
         "max_uses": int(defaults.get("max_uses", DEFAULT_MAX_USES)),
@@ -616,39 +655,54 @@ def main() -> int:
     spent = 0.0
     searches = 0
     stopped: str | None = None
+    model_seen: dict[str, bool] = {}
+    model_skips: dict[str, str] = {}
     for site in config["probes"]:
         settings = dict(settings_base)
         settings["user_location"] = site.get("user_location") or defaults.get("user_location")
-        probes: list[dict[str, Any]] = []
-        for question in site["questions"]:
-            if stopped is not None:
-                break
-            if args.max_probes is not None and probes_run >= args.max_probes:
-                stopped = f"--max-probes {args.max_probes} reached"
-                break
-            if spent > args.max_spend:
-                stopped = f"spend guard: ${spent:.4f} reported, limit ${args.max_spend:.2f}"
-                break
-            if args.max_searches is not None and searches >= args.max_searches:
-                stopped = f"--max-searches {args.max_searches} reached"
-                break
-            try:
-                probe = run_probe(site, question, settings, api_key, fixtures_dir, args.timeout)
-            except FatalProbeError as exc:
-                stopped = f"fatal: {exc} (bad key, no credit, or account refusal)"
-                print(stopped, file=sys.stderr)
-                break
-            probes.append(probe)
-            probes_run += 1
-            for run in probe["runs"]:
-                spent += run.get("cost_usd") or 0.0
-                searches += run.get("web_search_requests") or 0
-        sites_out.append(summarise_site(site, probes))
+        per_model: list[dict[str, Any]] = []
+        for model in models:
+            settings["model"] = model
+            probes: list[dict[str, Any]] = []
+            skipped: str | None = model_skips.get(model)
+            for question in site["questions"]:
+                if stopped is not None or skipped is not None:
+                    break
+                if args.max_probes is not None and probes_run >= args.max_probes:
+                    stopped = f"--max-probes {args.max_probes} reached"
+                    break
+                if spent > args.max_spend:
+                    stopped = f"spend guard: ${spent:.4f} reported, limit ${args.max_spend:.2f}"
+                    break
+                if args.max_searches is not None and searches >= args.max_searches:
+                    stopped = f"--max-searches {args.max_searches} reached"
+                    break
+                try:
+                    probe = run_probe(site, question, settings, api_key, fixtures_dir, args.timeout)
+                except FatalProbeError as exc:
+                    stopped = f"fatal: {exc} (bad key, no credit, or account refusal)"
+                    print(stopped, file=sys.stderr)
+                    break
+                probes.append(probe)
+                probes_run += 1
+                for run in probe["runs"]:
+                    spent += run.get("cost_usd") or 0.0
+                    searches += run.get("web_search_requests") or 0
+                # A settled 4xx on a model's very first probe (unknown slug, model
+                # without native search) means every later probe would fail too.
+                first_errors = [r.get("error") or "" for r in probe["runs"]]
+                if not model_seen.get(model) and first_errors and all(e.startswith("HTTP 4") for e in first_errors):
+                    skipped = f"model rejected on first probe: {first_errors[0][:160]}"
+                    model_skips[model] = skipped
+                    print(f"skipping remaining probes for {model}: {skipped}", file=sys.stderr)
+                model_seen[model] = True
+            per_model.append(summarise_model(site, model, probes, skipped))
+        sites_out.append(rollup_site(site, per_model))
     if stopped:
         print(f"Run stopped early: {stopped}. Coverage is partial.", file=sys.stderr)
 
     total_searches = sum(
-        r.get("web_search_requests", 0) for s in sites_out for p in s["probes"] for r in p["runs"]
+        r.get("web_search_requests", 0) for s in sites_out for m in s["models"] for p in m["probes"] for r in p["runs"]
     )
     payload = {
         "schema_version": 1,
@@ -656,7 +710,8 @@ def main() -> int:
         "method": "fixed buyer-intent questions asked of Claude with the web search server tool; "
         "retrieved and cited domains recorded per run; no site named in any prompt",
         "engine": engine,
-        "model": settings_base["model"],
+        "model": models[0],
+        "models": models,
         "search_tool": settings_base["search_tool"] if engine == "anthropic" else "openrouter:web_search (native)",
         "retrieved_exposed": engine == "anthropic",
         "repeats": settings_base["repeats"],
@@ -675,7 +730,7 @@ def main() -> int:
     markdown.write_text(markdown_report(payload), encoding="utf-8")
     print(markdown_report(payload))
 
-    any_error = any(r.get("error") for s in sites_out for p in s["probes"] for r in p["runs"])
+    any_error = any(r.get("error") for s in sites_out for m in s["models"] for p in m["probes"] for r in p["runs"])
     return 2 if (any_error or stopped) else 0
 
 

@@ -90,10 +90,17 @@ complete). Exit code 2 means at least one run errored.
 Two engines, same search. `--engine anthropic` (default) calls the Messages API
 with `ANTHROPIC_API_KEY` and sees both the retrieved list and the citations.
 `--engine openrouter` calls OpenRouter's `openrouter:web_search` server tool
-with `engine: native`, which for Claude models forwards Anthropic's own search
-(`max_uses` and `user_location` included) and bills `OPENROUTER_API_KEY`.
-OpenRouter returns citations only, so on that engine RETRIEVED is reported
-equal to CITED and the report says so.
+with `engine: native` for every model in `defaults.openrouter_models` (or
+repeated `--model` flags), so each model searches with its own provider's
+engine: OpenAI's for `openai/*`, Google's for `google/gemini-*`, Perplexity's
+for `perplexity/*`, Anthropic's for `anthropic/*`. One bill, one key
+(`OPENROUTER_API_KEY`), one row per site per model. OpenRouter returns
+citations only, so on that engine RETRIEVED is reported equal to CITED and
+the report says so. These are the API models with native search, not the
+consumer apps; a write-up that says "ChatGPT" when it measured
+`openai/gpt-5.5` is overclaiming. A model that rejects its first probe with
+a settled 4xx (unknown slug, no native search) is skipped for the rest of
+the run and marked so, rather than failing every question.
 
 Budget guards: `--max-spend` (default $5) stops the run once OpenRouter's
 per-response `usage.cost` adds up past the limit; `--max-searches` caps billed

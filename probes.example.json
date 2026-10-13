@@ -3,7 +3,11 @@
   "_purpose": "Question set for scripts/llm_citation_probe.py. Questions are what a buyer would ask; they never name a site, so a citation is earned. Keep the private copy of this file in the private companion repo.",
   "defaults": {
     "engine": "anthropic",
-    "openrouter_model": "anthropic/claude-sonnet-5.5",
+    "openrouter_models": [
+      "openai/gpt-5.5",
+      "perplexity/sonar",
+      "google/gemini-3.5-flash"
+    ],
     "model": "claude-sonnet-5-5",
     "search_tool": "web_search_20250305",
     "repeats": 2,
@@ -28,5 +32,6 @@
         "How much does a professional widget installation cost?"
       ]
     }
-  ]
+  ],
+  "_engines": "anthropic: Claude through the Messages API with ANTHROPIC_API_KEY; exposes the retrieved list and the citations. openrouter: every model in openrouter_models, each with its provider's native search, billed to OPENROUTER_API_KEY; citations only. These are the API models, not the consumer apps; label them that way in any write-up."
 }
