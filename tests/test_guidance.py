@@ -22,6 +22,13 @@ class CitationCueCatalogTests(unittest.TestCase):
         self.assertEqual(sorted(steps), ["bing", "brave", "google"])
         self.assertTrue(all(steps.values()))
 
+    def test_claims_about_other_companies_systems_carry_a_checked_reference(self):
+        refs = self.doc["cues"]["D2"]["references"]
+        self.assertGreaterEqual(len(refs), 4)
+        for ref in refs:
+            self.assertTrue(ref["url"].startswith("https://"))
+            self.assertRegex(ref["checked"], r"^\d{4}-\d{2}-\d{2}$")
+
     def test_work_order_covers_the_same_codes(self):
         self.assertEqual(sorted(self.doc["work_order"]), self.doc["order"])
 

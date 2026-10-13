@@ -44,7 +44,7 @@
       "cue": "Get indexed",
       "title": "The engine searches an index your site is not in",
       "oneLiner": "Each engine searches a different index. Being in Google's says nothing about Bing's or Brave's.",
-      "detail": "Find which index the engine reads, then check that index. OpenAI's search and Copilot read Bing: verify your site in Bing Webmaster Tools, submit the sitemap, and send changed URLs through IndexNow. IndexNow notifies Bing; it does not put anything into ChatGPT by itself. Gemini grounds on Google: use URL Inspection in Search Console and request indexing for the pages that answer your questions. Brave has no submission tool, so make sure your site is linked from pages Brave already holds and check again in a few weeks. Perplexity has no public index check. Read Bing and Google as a proxy for it, and say that it is a proxy.",
+      "detail": "Find which index the engine draws on, then check that index. ChatGPT search sends its queries to partner search providers, and OpenAI's help article links Microsoft's privacy statement, so Bing is the index you can check and act on. Copilot reads Bing directly. Verify your site in Bing Webmaster Tools, submit the sitemap, and send changed URLs through IndexNow. IndexNow notifies Bing; it does not put anything into ChatGPT by itself. Gemini grounds on Google: use URL Inspection in Search Console and request indexing for the pages that answer your questions. Anthropic's subprocessor list names Brave Search as the vendor for Claude's web search. Brave has no webmaster console. Its Submit URL page asks Brave to fetch a page again, so submit the pages that answer your questions and make sure your site is linked from pages Brave already holds. Perplexity has no public index check. Read Bing and Google as a proxy for it, and say that it is a proxy.",
       "effort": "minutes per site once the webmaster accounts exist; an afternoon to verify a set of sites the first time",
       "whereItGetsHard": "Account access. Webmaster verification is a human step, and a new site can take weeks to appear after you submit it. A request is not a guarantee: thin or duplicate pages are crawled and left out.",
       "check": "One query per index: a site-restricted search on Brave, GetUrlInfo on the Bing Webmaster API, URL Inspection on Search Console. A check that cannot run is reported as unknown, never as not indexed.",
@@ -59,18 +59,40 @@
       "stepsByIndex": {
         "bing": "Verify your site in Bing Webmaster Tools, submit the sitemap, and send changed URLs through IndexNow.",
         "google": "Inspect the URL in Search Console and request indexing for the pages that answer your questions.",
-        "brave": "Brave takes no submissions. Get your site linked from pages Brave already holds, and check again in a few weeks."
+        "brave": "Brave has no webmaster console. Submit your key pages at search.brave.com/submit-url, get your site linked from pages Brave already holds, and check again in a week or two."
       },
       "effortByIndex": {
-        "brave": "weeks of waiting; there is nothing to submit"
-      }
+        "brave": "minutes to submit; then days to weeks of waiting"
+      },
+      "references": [
+        {
+          "what": "Bing Webmaster API, GetUrlInfo: index details for one page",
+          "url": "https://learn.microsoft.com/en-us/dotnet/api/microsoft.bing.webmaster.api.interfaces.iwebmasterapi.geturlinfo",
+          "checked": "2026-10-13"
+        },
+        {
+          "what": "OpenAI Help Center, Searching the web with ChatGPT: partner search providers",
+          "url": "https://help.openai.com/en/articles/9237897-searching-the-web-with-chatgpt",
+          "checked": "2026-10-13"
+        },
+        {
+          "what": "Anthropic subprocessor list: Brave Search named for web search",
+          "url": "https://www.anthropic.com/subprocessors",
+          "checked": "2026-10-13"
+        },
+        {
+          "what": "Brave Search, Submit URL: asks Brave to fetch a page again",
+          "url": "https://search.brave.com/submit-url",
+          "checked": "2026-10-13"
+        }
+      ]
     },
     "D3": {
       "cause": "Indexed, but no page answers the question",
       "cue": "Write the passage",
       "title": "Nothing on your site answers this question",
       "oneLiner": "Your site is in the index and no page on it answers this question. There is nothing to cite.",
-      "detail": "Look for your closest existing page first. If one covers the topic, add a heading that restates the question and a passage of 134 to 167 words that answers it, with the answer in the first 40 to 60 words. Write a new page only when no page covers the intent, and keep it short: 400 to 500 words for a buying question, 800 to 1,000 for a hub. Use the passages the engine quoted from other sites as your brief. They show the shape of the answer it wanted. State only facts you can back with a source and a date. Any structured data has to repeat text a visitor can see on the page.",
+      "detail": "Look for your closest existing page first. If one covers the topic, add a heading that restates the question and a passage of 134 to 167 words that answers it, with the answer in the first 40 to 60 words. Write a new page only when no page covers the intent, and keep it short and specific to the one question. Use the passages the engine quoted from other sites as your brief. They show the shape of the answer it wanted. State only facts you can back with a source and a date. Any structured data has to repeat text a visitor can see on the page.",
       "effort": "hours",
       "whereItGetsHard": "Having something true and specific to say. A page is usually missing because nobody has the numbers yet, and an answer without them reads like every other page that was not cited.",
       "check": "A search restricted to your domain, using the question's terms, returns no page that matches.",
@@ -91,7 +113,7 @@
       "cue": "Rewrite the answer",
       "title": "Your page was there and another source was quoted",
       "oneLiner": "The engine found your page, or could have, and quoted someone else. The gap is in the page.",
-      "detail": "Put your page next to the passages that were cited instead of it. Check in this order. Does your first paragraph answer the question within 60 words. Does it carry a specific number with a source and a date. Is the answer one self-contained passage of 134 to 167 words, or is it spread across sections. Is the page dated and recently reviewed. Does your FAQ or other structured data repeat the visible answer, with one FAQ block per URL. Fix the first gap you find and measure again before you fix the next, so you learn which change mattered. Position in the engine's own search results moves the odds more than author markup does. Treat a byline as a trust signal for readers, not as a lever.",
+      "detail": "Put your page next to the passages that were cited instead of it. Check in this order. Does your first paragraph answer the question within 60 words. Does it carry a specific number with a source and a date. Is the answer one self-contained passage of 134 to 167 words, or is it spread across sections. Is the page dated and recently reviewed. Does your FAQ or other structured data repeat the visible answer, with one FAQ block per URL. Fix the first gap you find and measure again before you fix the next, so you learn which change mattered.",
       "effort": "about an hour per page",
       "whereItGetsHard": "Knowing which gap mattered. Change one thing per page per measurement cycle, and keep a few pages unchanged as a control, because answers drift with no change on your side at all.",
       "check": "The engine's own search returned your site and the answer cited others; or the site is fetchable, indexed and has a matching page, and the answer still chose other sources.",
