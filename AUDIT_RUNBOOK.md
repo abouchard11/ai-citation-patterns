@@ -66,6 +66,38 @@ For Cloudflare-hosted properties, inspect whether Bot Preference Sync and the zo
 
 Source: [Cloudflare Bot Preference Sync](https://blog.cloudflare.com/bot-preference-sync/) and the [zone Bot Management API](https://developers.cloudflare.com/api/resources/bot_management/methods/get/).
 
+## LLM citation scoreboard
+
+`scripts/llm_citation_probe.py` is the measurement the audit above refuses to
+fake. It asks Claude a fixed set of buyer-intent questions with the web search
+server tool on, then records for each question which domains the search
+retrieved and which the answer cited. No prompt names a site; a citation is
+earned. Every question runs `repeats` times because retrieval is
+non-deterministic, and the report shows cited-in-k-of-n.
+
+```bash
+ANTHROPIC_API_KEY=... python3 scripts/llm_citation_probe.py \
+  --config probes.json \
+  --output citations/latest.json \
+  --markdown citations/latest.md
+```
+
+Outcomes per question: `CITED` (an answer cited the site), `RETRIEVED` (search
+returned the site, no answer cited it: a content problem), `ABSENT` (search
+never returned the site: an index problem first), `ERROR` (the probe did not
+complete). Exit code 2 means at least one run errored.
+
+Cost is dominated by web search at $10 per 1,000 searches, capped per question
+by `max_uses`. Nine sites, three questions, two repeats, three searches max is
+under $2 of search per run plus token costs.
+
+Limits, stated so nobody over-reads the numbers: one engine through its
+official API, not ChatGPT, Perplexity, or Google; a fixed question set, so the
+score is only as good as the questions; week-to-week movement can be engine
+drift rather than anything you changed. Confirm with Search Console and server
+logs before acting. `probes.example.json` shows the config shape; the real
+question set stays in the private companion repo with the dated snapshots.
+
 ## Scheduled run
 
 The GitHub Actions workflow runs at 8:00 AM America/Chicago on the first Monday of each month, accounting for daylight-saving time with a no-op gate. It uploads the JSON and Markdown results as workflow artifacts; it does not commit generated files, deploy sites, change crawler policies, or update Search Console.

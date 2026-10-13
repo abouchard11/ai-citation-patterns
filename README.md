@@ -393,6 +393,11 @@ The dependency-free [portfolio audit runbook](AUDIT_RUNBOOK.md) checks public te
 high-risk claim-review flags. It does not claim indexation, ranking, factual truth, citation share, or
 conversion performance.
 
+For citation share on one engine, `scripts/llm_citation_probe.py` asks Claude a fixed set of
+buyer-intent questions through the official web search tool and records which domains were retrieved
+and which were cited, per run, with repeats. Same repo split: the question set and the dated results
+live in the private companion. See the runbook's "LLM citation scoreboard" section.
+
 ---
 
 ## Optimization checklist

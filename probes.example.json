@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "_purpose": "Question set for scripts/llm_citation_probe.py. Questions are what a buyer would ask; they never name a site, so a citation is earned. Keep the private copy of this file in the private companion repo.",
+  "defaults": {
+    "model": "claude-sonnet-5-5",
+    "search_tool": "web_search_20250305",
+    "repeats": 2,
+    "max_uses": 3,
+    "max_tokens": 1024
+  },
+  "probes": [
+    {
+      "name": "Example Co",
+      "domain": "example.com",
+      "aliases": ["example.org"],
+      "user_location": {"city": "Austin", "region": "Texas", "country": "US", "timezone": "America/Chicago"},
+      "questions": [
+        "What is the best way to compare widget suppliers in Texas?",
+        "How much does a professional widget installation cost?"
+      ]
+    }
+  ]
+}
