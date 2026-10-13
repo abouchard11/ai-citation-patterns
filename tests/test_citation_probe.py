@@ -120,6 +120,20 @@ class ParsingTests(unittest.TestCase):
         self.assertEqual(signals["search_errors"], [])
 
 
+    def test_cited_text_is_kept_whole_up_to_the_cap_on_both_engines(self):
+        long_passage = "p" * (PROBE.CITED_TEXT_MAX + 500)
+        resp = direct_response(["https://example.com/"], ["https://example.com/"])
+        resp["content"][-1]["citations"][0]["cited_text"] = long_passage
+        kept = PROBE.extract_signals(resp)["cited"][0]["cited_text"]
+        self.assertEqual(len(kept), PROBE.CITED_TEXT_MAX)
+        self.assertGreaterEqual(PROBE.CITED_TEXT_MAX, 1000)  # a full answer passage, not a snippet
+
+        orr = openrouter_response(["https://example.com/"])
+        orr["choices"][0]["message"]["annotations"][0]["url_citation"]["content"] = long_passage
+        kept = PROBE.extract_openrouter_signals(orr)["cited"][0]["cited_text"]
+        self.assertEqual(len(kept), PROBE.CITED_TEXT_MAX)
+
+
 class RequestShapeTests(unittest.TestCase):
     def test_request_carries_tool_location_and_no_site_names(self):
         body = PROBE.build_request("How do I pick a supplier?", {
@@ -154,6 +168,8 @@ class AggregationTests(unittest.TestCase):
         self.assertEqual(probe["cited_runs"], 1)
         self.assertEqual(probe["retrieved_runs"], 2)
         self.assertEqual(probe["runs"][1]["site_best_rank"], 2)
+        self.assertEqual(probe["runs"][0]["citations"], [{"url": "https://example.com/", "cited_text": "snippet", "via": "annotation"}])
+        self.assertNotIn("cited", probe["runs"][0])
         summary = PROBE.summarise_site(self.site(), [probe])
         self.assertEqual(summary["status"], "CITED")
         self.assertEqual(summary["cited_rate"], 0.5)
