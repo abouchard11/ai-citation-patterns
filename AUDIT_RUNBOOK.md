@@ -87,6 +87,14 @@ returned the site, no answer cited it: a content problem), `ABSENT` (search
 never returned the site: an index problem first), `ERROR` (the probe did not
 complete). Exit code 2 means at least one run errored.
 
+Two engines, same search. `--engine anthropic` (default) calls the Messages API
+with `ANTHROPIC_API_KEY` and sees both the retrieved list and the citations.
+`--engine openrouter` calls OpenRouter's `openrouter:web_search` server tool
+with `engine: native`, which for Claude models forwards Anthropic's own search
+(`max_uses` and `user_location` included) and bills `OPENROUTER_API_KEY`.
+OpenRouter returns citations only, so on that engine RETRIEVED is reported
+equal to CITED and the report says so.
+
 Cost is dominated by web search at $10 per 1,000 searches, capped per question
 by `max_uses`. Nine sites, three questions, two repeats, three searches max is
 under $2 of search per run plus token costs.

@@ -48,8 +48,12 @@ from urllib.parse import urlparse
 
 API_URL = "https://api.anthropic.com/v1/messages"
 API_VERSION = "2023-06-01"
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+DEFAULT_ENGINE = "anthropic"
 DEFAULT_MODEL = "claude-sonnet-5-5"
+DEFAULT_OPENROUTER_MODEL = "anthropic/claude-sonnet-5.5"
 DEFAULT_SEARCH_TOOL = "web_search_20250305"
+ENGINES = ("anthropic", "openrouter")
 DEFAULT_REPEATS = 2
 DEFAULT_MAX_USES = 3
 USER_AGENT = "MidnightDev-LLM-Citation-Probe/1.0 (+https://github.com/abouchard11/ai-citation-patterns)"
@@ -191,26 +195,101 @@ def build_request(question: str, settings: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def call_api(body: dict[str, Any], api_key: str, timeout: float, attempts: int = 3) -> dict[str, Any]:
-    """POST to the Messages API with bounded retries on transient failures.
+def build_openrouter_request(question: str, settings: dict[str, Any]) -> dict[str, Any]:
+    """OpenRouter's `openrouter:web_search` server tool with engine=native.
+
+    For Anthropic models, native means Anthropic's own web search, with
+    `max_uses` and `user_location` forwarded. Same instrument as the direct
+    API, billed through OpenRouter. Citations come back as OpenAI-style
+    `url_citation` annotations; the raw retrieved list is not exposed.
+    """
+    params: dict[str, Any] = {"engine": "native", "max_uses": settings["max_uses"]}
+    if settings.get("user_location"):
+        params["user_location"] = {"type": "approximate", **settings["user_location"]}
+    if settings.get("blocked_domains"):
+        params["excluded_domains"] = settings["blocked_domains"]
+    return {
+        "model": settings["model"],
+        "max_tokens": settings.get("max_tokens", 1024),
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": question},
+        ],
+        "tools": [{"type": "openrouter:web_search", "parameters": params}],
+    }
+
+
+def extract_openrouter_signals(response: dict[str, Any]) -> dict[str, Any]:
+    """Pull citations out of an OpenRouter chat completion.
+
+    OpenRouter standardises every search engine's citations into
+    `message.annotations[]` of type `url_citation`. It does not return the
+    search's full result list, so `retrieved` is reported equal to `cited`
+    and the payload says so (`retrieved_exposed: False`).
+    """
+    if response.get("error"):
+        err = response["error"]
+        raise RuntimeError(f"API error: {json.dumps(err)[:300]}")
+    choices = response.get("choices") or []
+    if not choices:
+        raise RuntimeError("API error: response carried no choices")
+    message = choices[0].get("message") or {}
+    cited: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for annotation in message.get("annotations") or []:
+        if annotation.get("type") != "url_citation":
+            continue
+        loc = annotation.get("url_citation") or {}
+        url = loc.get("url") or ""
+        if url and url not in seen:
+            seen.add(url)
+            cited.append({
+                "url": url,
+                "title": loc.get("title") or "",
+                "cited_text": (loc.get("content") or "")[:150],
+            })
+    usage = response.get("usage") or {}
+    finish = choices[0].get("finish_reason")
+    return {
+        "queries_issued": [],
+        "retrieved": list(cited),
+        "cited": cited,
+        "search_errors": [],
+        "stop_reason": "refusal" if finish == "content_filter" else finish,
+        "answer_chars": len(message.get("content") or ""),
+        "web_search_requests": (usage.get("server_tool_use") or {}).get("web_search_requests", 0),
+        "input_tokens": usage.get("prompt_tokens", usage.get("input_tokens", 0)),
+        "output_tokens": usage.get("completion_tokens", usage.get("output_tokens", 0)),
+    }
+
+
+def call_api(body: dict[str, Any], api_key: str, timeout: float, attempts: int = 3, engine: str = "anthropic") -> dict[str, Any]:
+    """POST to the chosen engine with bounded retries on transient failures.
 
     Settled failures (400, 401, 403, 404, 413, 422) are raised immediately;
     they will not change on retry and should surface in the report.
     """
     data = json.dumps(body).encode("utf-8")
+    if engine == "openrouter":
+        url = OPENROUTER_URL
+        headers = {
+            "content-type": "application/json",
+            "authorization": f"Bearer {api_key}",
+            "http-referer": "https://github.com/abouchard11/ai-citation-patterns",
+            "x-title": "LLM citation probe",
+            "user-agent": USER_AGENT,
+        }
+    else:
+        url = API_URL
+        headers = {
+            "content-type": "application/json",
+            "x-api-key": api_key,
+            "anthropic-version": API_VERSION,
+            "user-agent": USER_AGENT,
+        }
     last_error: Exception | None = None
     for attempt in range(1, attempts + 1):
-        request = urllib.request.Request(
-            API_URL,
-            data=data,
-            method="POST",
-            headers={
-                "content-type": "application/json",
-                "x-api-key": api_key,
-                "anthropic-version": API_VERSION,
-                "user-agent": USER_AGENT,
-            },
-        )
+        request = urllib.request.Request(url, data=data, method="POST", headers=headers)
         try:
             with urllib.request.urlopen(request, timeout=timeout) as resp:
                 return json.loads(resp.read().decode("utf-8"))
@@ -269,10 +348,18 @@ def run_probe(
                     raise RuntimeError("no fixture for this probe")
             else:
                 assert api_key is not None
-                response = call_api(build_request(question, settings), api_key, timeout)
-            if response.get("type") == "error":
-                raise RuntimeError(f"API error: {json.dumps(response.get('error'))[:300]}")
-            signals = extract_signals(response)
+                body = (
+                    build_openrouter_request(question, settings)
+                    if settings.get("engine", DEFAULT_ENGINE) == "openrouter"
+                    else build_request(question, settings)
+                )
+                response = call_api(body, api_key, timeout, engine=settings.get("engine", DEFAULT_ENGINE))
+            if settings.get("engine", DEFAULT_ENGINE) == "openrouter":
+                signals = extract_openrouter_signals(response)
+            else:
+                if response.get("type") == "error":
+                    raise RuntimeError(f"API error: {json.dumps(response.get('error'))[:300]}")
+                signals = extract_signals(response)
             run.update(signals)
             run["retrieved_urls"] = [r["url"] for r in signals["retrieved"]]
             run["cited_urls"] = [c["url"] for c in signals["cited"]]
@@ -360,18 +447,34 @@ def pct(value: float | None) -> str:
 
 
 def markdown_report(payload: dict[str, Any]) -> str:
+    if payload.get("engine") == "openrouter":
+        engine_line = (
+            f"Engine: `{payload['model']}` via OpenRouter, native provider search, "
+            f"{payload['repeats']} run(s) per question, {payload['total_searches']} web searches billed."
+        )
+        retrieved_note = (
+            "RETRIEVED is not observable on this engine (OpenRouter returns citations, not the raw "
+            "result list), so it is reported equal to CITED and ABSENT means no answer cited the site."
+        )
+    else:
+        engine_line = (
+            f"Engine: Claude `{payload['model']}` with `{payload['search_tool']}`, "
+            f"{payload['repeats']} run(s) per question, {payload['total_searches']} web searches billed."
+        )
+        retrieved_note = (
+            "RETRIEVED = search returned the site but no answer cited it (a content problem). "
+            "ABSENT = search never returned the site (an index problem first)."
+        )
     lines = [
         "# LLM citation scoreboard",
         "",
         f"Generated: {payload['generated_at']}",
         "",
-        f"Engine: Claude `{payload['model']}` with `{payload['search_tool']}`, "
-        f"{payload['repeats']} run(s) per question, {payload['total_searches']} web searches billed.",
+        engine_line,
         "",
         "> One engine, official API, no site named in any prompt. Retrieval is non-deterministic, "
         "so read rates across repeats, not single runs. CITED = at least one answer cited the site. "
-        "RETRIEVED = search returned the site but no answer cited it (a content problem). "
-        "ABSENT = search never returned the site (an index problem first).",
+        + retrieved_note,
         "",
         "| Site | Status | Cited | Retrieved | Questions | Top competing cited domains |",
         "| --- | --- | ---: | ---: | ---: | --- |",
@@ -437,8 +540,11 @@ def main() -> int:
     parser.add_argument("--config", default="probes.json")
     parser.add_argument("--output", default="citations/latest.json")
     parser.add_argument("--markdown", default="citations/latest.md")
-    parser.add_argument("--model", default=None, help=f"Overrides config. Default {DEFAULT_MODEL}.")
-    parser.add_argument("--search-tool", default=None, help=f"Overrides config. Default {DEFAULT_SEARCH_TOOL}.")
+    parser.add_argument("--engine", choices=ENGINES, default=None,
+                        help="anthropic (ANTHROPIC_API_KEY) or openrouter (OPENROUTER_API_KEY). Overrides config.")
+    parser.add_argument("--model", default=None,
+                        help=f"Overrides config. Default {DEFAULT_MODEL} (anthropic) / {DEFAULT_OPENROUTER_MODEL} (openrouter).")
+    parser.add_argument("--search-tool", default=None, help=f"Anthropic engine only. Default {DEFAULT_SEARCH_TOOL}.")
     parser.add_argument("--repeats", type=int, default=None, help=f"Runs per question. Default {DEFAULT_REPEATS}.")
     parser.add_argument("--timeout", type=float, default=90.0)
     parser.add_argument("--fixtures", default=None, help="Directory of saved responses; no API calls are made.")
@@ -447,8 +553,14 @@ def main() -> int:
 
     config = load_config(Path(args.config))
     defaults = config.get("defaults", {})
+    engine = args.engine or defaults.get("engine", DEFAULT_ENGINE)
+    if engine not in ENGINES:
+        raise SystemExit(f"engine must be one of {ENGINES}, got {engine!r}")
+    default_model = DEFAULT_OPENROUTER_MODEL if engine == "openrouter" else DEFAULT_MODEL
+    configured_model = defaults.get("openrouter_model") if engine == "openrouter" else defaults.get("model")
     settings_base = {
-        "model": args.model or defaults.get("model", DEFAULT_MODEL),
+        "engine": engine,
+        "model": args.model or configured_model or default_model,
         "search_tool": args.search_tool or defaults.get("search_tool", DEFAULT_SEARCH_TOOL),
         "repeats": args.repeats or int(defaults.get("repeats", DEFAULT_REPEATS)),
         "max_uses": int(defaults.get("max_uses", DEFAULT_MAX_USES)),
@@ -459,9 +571,10 @@ def main() -> int:
         raise SystemExit("repeats must be at least 1")
 
     fixtures_dir = Path(args.fixtures) if args.fixtures else None
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    key_name = "OPENROUTER_API_KEY" if engine == "openrouter" else "ANTHROPIC_API_KEY"
+    api_key = os.environ.get(key_name)
     if fixtures_dir is None and not api_key:
-        print("ANTHROPIC_API_KEY is not set and no --fixtures directory was given.", file=sys.stderr)
+        print(f"{key_name} is not set and no --fixtures directory was given.", file=sys.stderr)
         return 2
 
     sites_out: list[dict[str, Any]] = []
@@ -485,8 +598,10 @@ def main() -> int:
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "method": "fixed buyer-intent questions asked of Claude with the web search server tool; "
         "retrieved and cited domains recorded per run; no site named in any prompt",
+        "engine": engine,
         "model": settings_base["model"],
-        "search_tool": settings_base["search_tool"],
+        "search_tool": settings_base["search_tool"] if engine == "anthropic" else "openrouter:web_search (native)",
+        "retrieved_exposed": engine == "anthropic",
         "repeats": settings_base["repeats"],
         "source": "fixtures" if fixtures_dir else "live",
         "total_searches": total_searches,

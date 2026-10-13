@@ -52,6 +52,27 @@ def filtered_response(retrieved, cited):
     return resp
 
 
+def openrouter_response(cited, finish="stop", error=None):
+    """An OpenRouter chat completion with url_citation annotations."""
+    if error is not None:
+        return {"error": error}
+    return {
+        "id": "gen-1",
+        "choices": [{
+            "finish_reason": finish,
+            "message": {
+                "role": "assistant",
+                "content": "Answer with [a.com](https://a.com/).",
+                "annotations": [
+                    {"type": "url_citation", "url_citation": {"url": u, "title": "t", "content": "snippet", "start_index": 0, "end_index": 5}}
+                    for u in cited
+                ],
+            },
+        }],
+        "usage": {"prompt_tokens": 80, "completion_tokens": 40, "server_tool_use": {"web_search_requests": 2}},
+    }
+
+
 class DomainTests(unittest.TestCase):
     def test_host_strips_www_and_lowercases(self):
         self.assertEqual(PROBE.host_of("https://WWW.Example.com/path"), "example.com")
@@ -193,6 +214,63 @@ class CliTests(unittest.TestCase):
             )
             self.assertEqual(proc.returncode, 2)
             self.assertIn("ANTHROPIC_API_KEY", proc.stderr)
+
+
+class OpenRouterTests(unittest.TestCase):
+    def settings(self, **extra):
+        base = {"engine": "openrouter", "model": "anthropic/claude-sonnet-5.5", "search_tool": "ignored",
+                "repeats": 1, "max_uses": 3, "max_tokens": 512, "user_location": None, "blocked_domains": []}
+        base.update(extra)
+        return base
+
+    def test_request_uses_native_server_tool_and_forwards_location(self):
+        body = PROBE.build_openrouter_request("q?", self.settings(user_location={"city": "Houston", "country": "US"}))
+        self.assertEqual(body["model"], "anthropic/claude-sonnet-5.5")
+        tool = body["tools"][0]
+        self.assertEqual(tool["type"], "openrouter:web_search")
+        self.assertEqual(tool["parameters"]["engine"], "native")
+        self.assertEqual(tool["parameters"]["max_uses"], 3)
+        self.assertEqual(tool["parameters"]["user_location"]["type"], "approximate")
+        self.assertNotIn("excluded_domains", tool["parameters"])
+        self.assertEqual(body["messages"][0]["role"], "system")
+        self.assertEqual(body["messages"][1]["content"], "q?")
+
+    def test_annotations_become_citations_and_retrieved_mirrors_cited(self):
+        signals = PROBE.extract_openrouter_signals(openrouter_response(["https://a.com/", "https://example.com/p", "https://a.com/"]))
+        self.assertEqual([c["url"] for c in signals["cited"]], ["https://a.com/", "https://example.com/p"])
+        self.assertEqual([r["url"] for r in signals["retrieved"]], ["https://a.com/", "https://example.com/p"])
+        self.assertEqual(signals["web_search_requests"], 2)
+        self.assertEqual(signals["input_tokens"], 80)
+
+    def test_error_object_raises_runtime_error(self):
+        with self.assertRaises(RuntimeError):
+            PROBE.extract_openrouter_signals(openrouter_response([], error={"code": 402, "message": "insufficient credits"}))
+        with self.assertRaises(RuntimeError):
+            PROBE.extract_openrouter_signals({"choices": []})
+
+    def test_content_filter_is_reported_as_refusal(self):
+        signals = PROBE.extract_openrouter_signals(openrouter_response([], finish="content_filter"))
+        self.assertEqual(signals["stop_reason"], "refusal")
+
+    def test_fixture_run_end_to_end(self):
+        site = {"name": "Example Co", "domain": "example.com", "questions": ["q"], "_domains": ["example.com"]}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / PROBE.fixture_key("Example Co", "q", 0)
+            path.write_text(json.dumps(openrouter_response(["https://www.example.com/"])), encoding="utf-8")
+            probe = PROBE.run_probe(site, "q", self.settings(), None, pathlib.Path(tmp), 10)
+        self.assertEqual(probe["outcome"], "CITED")
+        self.assertEqual(probe["runs"][0]["site_best_rank"], 1)
+
+    def test_cli_names_the_openrouter_key_when_missing(self):
+        root = pathlib.Path(__file__).parents[1]
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = subprocess.run(
+                [sys.executable, str(MODULE_PATH), "--config", str(root / "probes.example.json"), "--engine", "openrouter",
+                 "--output", f"{tmp}/o.json", "--markdown", f"{tmp}/o.md"],
+                capture_output=True, text=True, timeout=60, env={"PATH": "/usr/bin:/bin"},
+            )
+            self.assertEqual(proc.returncode, 2)
+            self.assertIn("OPENROUTER_API_KEY", proc.stderr)
 
 
 if __name__ == "__main__":
