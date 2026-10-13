@@ -121,6 +121,17 @@ drift rather than anything you changed. Confirm with Search Console and server
 logs before acting. `probes.example.json` shows the config shape; the real
 question set stays in the private companion repo with the dated snapshots.
 
+## Dashboard
+
+`scripts/render_dashboard.py --snapshots citations --output citations/dashboard.html`
+turns every snapshot in the folder into one self-contained page: a site by
+model grid with plain-English verdicts, a to-do list derived from the misses,
+per-site detail with the competing domains that were cited instead, and a
+trend sparkline per site once there are two or more runs. Stdlib only, no
+external requests, both snapshot schemas accepted. The private workflow
+renders it on every run; a weekly Claude routine republishes it to a stable
+link that the Monday brief carries.
+
 ## Scheduled run
 
 The GitHub Actions workflow runs at 8:00 AM America/Chicago on the first Monday of each month, accounting for daylight-saving time with a no-op gate. It uploads the JSON and Markdown results as workflow artifacts; it does not commit generated files, deploy sites, change crawler policies, or update Search Console.
