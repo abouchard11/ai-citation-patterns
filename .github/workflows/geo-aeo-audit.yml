@@ -6,13 +6,9 @@ name: Audit runner CI
 
 on:
   workflow_dispatch:
+  # Every pull request, unfiltered: the `test` job is a required status check on
+  # main, and a path filter would leave docs-only pull requests blocked forever.
   pull_request:
-    paths:
-      - "portfolio.example.json"
-      - "probes.example.json"
-      - "scripts/**"
-      - "tests/**"
-      - ".github/workflows/geo-aeo-audit.yml"
   push:
     branches: [main]
     paths:
