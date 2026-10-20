@@ -1,5 +1,7 @@
 # AI Citation Patterns — a 2026 GEO reference
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23503618.svg)](https://doi.org/10.5281/zenodo.23503618)
+
 *How the major AI answer engines actually select and cite content — dated, sourced, and honestly
 caveated. Researched and maintained by [Alex Bouchard](https://github.com/abouchard11) (MidnightDev).*
 
